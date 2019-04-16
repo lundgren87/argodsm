@@ -354,6 +354,6 @@ unsigned long getOffset(unsigned long addr);
  * @param addr Address in the global address space
  * @return index for sharer vector for the page
  */
-inline unsigned long get_classification_index(uint64_t addr);
+static inline unsigned long get_classification_index(uint64_t addr);
 #endif /* argo_swdsm_h */
 
