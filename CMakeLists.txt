@@ -6,8 +6,8 @@ project(ArgoDSM)
 set(ARGO_VERSION_MAJOR 0)
 set(ARGO_VERSION_MINOR 1)
 
-set(DEFAULT_C_FLAGS "-std=c11 -pthread")
-set(DEFAULT_CXX_FLAGS "-std=c++11 -pthread")
+set(DEFAULT_C_FLAGS "-std=c11 -pthread -fPIC")
+set(DEFAULT_CXX_FLAGS "-std=c++11 -pthread -fPIC")
 set(DEFAULT_LINK_FLAGS "")
 
 option(ARGO_DEBUG
