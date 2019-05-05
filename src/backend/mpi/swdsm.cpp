@@ -1266,6 +1266,7 @@ void self_invalidation(){
 				flushWriteBuffer();
 				flushed = 1;
 			}
+			MPI_Win_lock(MPI_LOCK_SHARED, workrank, 0, sharerWindow);
 			if(
 				 // node is single writer
 				 (globalSharers[classidx+1]==id)
@@ -1273,10 +1274,12 @@ void self_invalidation(){
 				 // No writer and assert that the node is a sharer
 				 ((globalSharers[classidx+1]==0) && ((globalSharers[classidx]&id)==id))
 				 ){
+				MPI_Win_unlock(workrank, sharerWindow);
 				touchedcache[i] =1;
 				/*nothing - we keep the pages, SD is done in flushWB*/
 			}
 			else{ //multiple writer or SO
+				MPI_Win_unlock(workrank, sharerWindow);
 				cacheControl[i].dirty=CLEAN;
 				cacheControl[i].state = INVALID;
 				touchedcache[i] =0;
