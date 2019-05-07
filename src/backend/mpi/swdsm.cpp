@@ -632,6 +632,7 @@ void load_cache_entry(unsigned long loadtag, unsigned long loadline) {
 	int n;
 	homenode = getHomenode(lineAddr);
 
+
 	if(prevsharer==0 ){ //if there is strictly less than two 'stable' sharers
 		MPI_Win_lock(MPI_LOCK_SHARED, homenode, 0, sharerWindow);
 		MPI_Get_accumulate(&id, 1, MPI_LONG, &tempsharer, 1, MPI_LONG,
@@ -774,6 +775,7 @@ void prefetch_cache_entry(unsigned long prefetchtag, unsigned long prefetchline)
 	MPI_Win_unlock(workrank, sharerWindow);
 	int n;
 	homenode = getHomenode(lineAddr);
+
 
 	if(prevsharer==0 ){ //if there is strictly less than two 'stable' sharers
 		MPI_Win_lock(MPI_LOCK_SHARED, homenode, 0, sharerWindow);
