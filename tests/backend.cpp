@@ -8,6 +8,7 @@
 
 #include "argo.hpp"
 #include "data_distribution/data_distribution.hpp"
+#include "backend/mpi/coherence.hpp"
 
 #include "gtest/gtest.h"
 
@@ -378,6 +379,92 @@ TEST_F(backendTest, atomicFetchAddPointer) {
 		ASSERT_EQ(2, *ptr.get() - old_ptr);
 	}
 }
+
+//TODO: Figure out a way to enable tests for MPI backend only?
+/**
+ * @brief Test selective SI
+ */
+//TEST_F(backendTest, selective_si_test) {
+//	int *arr = argo::conew_array<int>(30000);
+//	if((argo::number_of_nodes()-1) == argo::node_id()){ //last node
+//		arr[28282] = 0;
+//	}
+//	argo::barrier();
+//	while(arr[28282] < 1337){
+//		if((argo::number_of_nodes()-1) == argo::node_id()){ //last node
+//			arr[28282]++;
+//                        argo::backend::release();
+//		}
+//		selective_si(&arr[28282],sizeof(int));
+//	}
+//	ASSERT_EQ(arr[28282],1337);
+//	argo::barrier();
+//
+//	while(arr[28282] > -42){
+//		if(argo::node_id() == 0){ //first node
+//			arr[28282]--;
+//                        argo::backend::release();
+//		}
+//		selective_si(&arr[28282],sizeof(int));
+//	}
+//
+//	ASSERT_EQ(arr[28282],-42);
+//	argo::barrier();
+//}
+//
+//
+///**
+// * @brief Test selective SI
+// */
+//TEST_F(backendTest, selective_si_test_double_spin) {
+//	char *arr = argo::conew_array<char>(409600*argo_number_of_nodes()); // 10 pages per node
+//	int spins = 0;
+//	if((argo::number_of_nodes()-1) == argo::node_id()){ //last node
+//		arr[1] = 0;
+//		arr[500000] = 0;
+//	}
+//	argo::barrier();
+//	if(argo::node_id() == 0){
+//		arr[1] = 42;
+//		argo::backend::release();
+//	}
+//	else if((argo::number_of_nodes()-1) == argo::node_id()){ //last node
+//		arr[500000] = 13;
+//	}
+//	else{
+//		//...
+//	}
+//
+//	if(argo::node_id() == 0){
+//		while(arr[500000] != 13){
+//			selective_si(&arr[500000],sizeof(char));
+//			spins++;
+//		}
+//	}
+//	else if((argo::number_of_nodes()-1) == argo::node_id()){ //last node
+//		while(arr[1] != 42){
+//			selective_si(&arr[1],sizeof(char));
+//			spins++;
+//		}
+//		argo::backend::release(); // communicate arr[500000]
+//	}
+//	else{
+//		while(arr[1] != 42){
+//			selective_si(&arr[1],sizeof(char));
+//			spins++;
+//		}
+//		while(arr[500000] != 13){
+//			selective_si(&arr[500000],sizeof(char));
+//			spins++;
+//		}
+//	}
+//
+//
+//	ASSERT_EQ(arr[1],42);
+//	ASSERT_EQ(arr[500000],13);
+//	printf("SPINS %d argo node id:%d\n",spins,argo::node_id());
+//	argo::barrier();
+//}
 
 /**
  * @brief The main function that runs the tests
