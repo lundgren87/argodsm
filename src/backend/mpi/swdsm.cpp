@@ -368,7 +368,7 @@ void handler(int sig, siginfo_t *si, void *unused){
 		unsigned long prevsharer = (globalSharers[classidx])&id;
 		MPI_Win_unlock(workrank, sharerWindow);
 		if(prevsharer != id){
-			MPI_Win_lock(MPI_LOCK_SHARED, workrank, 0, sharerWindow);
+			MPI_Win_lock(MPI_LOCK_EXCLUSIVE, workrank, 0, sharerWindow);
 			sharers = globalSharers[classidx];
 			globalSharers[classidx] |= id;
 			MPI_Win_unlock(workrank, sharerWindow);
@@ -399,7 +399,7 @@ void handler(int sig, siginfo_t *si, void *unused){
 		else{
 
 			/* get current sharers/writers and then add your own id */
-			MPI_Win_lock(MPI_LOCK_SHARED, workrank, 0, sharerWindow);
+			MPI_Win_lock(MPI_LOCK_EXCLUSIVE, workrank, 0, sharerWindow);
 			unsigned long sharers = globalSharers[classidx];
 			unsigned long writers = globalSharers[classidx+1];
 			globalSharers[classidx+1] |= id;
@@ -545,7 +545,7 @@ void handler(int sig, siginfo_t *si, void *unused){
 	MPI_Win_unlock(workrank, sharerWindow);
 	/* Either already registered write - or 1 or 0 other writers already cached */
 	if(writers != id && isPowerOf2(writers)){
-		MPI_Win_lock(MPI_LOCK_SHARED, workrank, 0, sharerWindow);
+		MPI_Win_lock(MPI_LOCK_EXCLUSIVE, workrank, 0, sharerWindow);
 		globalSharers[classidx+1] |= id; //register locally
 		MPI_Win_unlock(workrank, sharerWindow);
 
@@ -558,7 +558,7 @@ void handler(int sig, siginfo_t *si, void *unused){
 		/* We get result of accumulation before operation so we need to account for that */
 		writers |= id;
 		/* Just add the (potentially) new sharers fetched to local copy */
-		MPI_Win_lock(MPI_LOCK_SHARED, workrank, 0, sharerWindow);
+		MPI_Win_lock(MPI_LOCK_EXCLUSIVE, workrank, 0, sharerWindow);
 		globalSharers[classidx] |= sharers;
 		MPI_Win_unlock(workrank, sharerWindow);
 
@@ -757,7 +757,7 @@ void * loadcacheline(void * x){
 			MPI_Win_unlock(homenode, sharerWindow);
 		}
 
-		MPI_Win_lock(MPI_LOCK_SHARED, workrank, 0, sharerWindow);
+		MPI_Win_lock(MPI_LOCK_EXCLUSIVE, workrank, 0, sharerWindow);
 		globalSharers[classidx] |= tempsharer;
 		globalSharers[classidx+1] |= tempwriter;
 		MPI_Win_unlock(workrank, sharerWindow);
@@ -910,7 +910,7 @@ void * prefetchcacheline(void * x){
 			MPI_Win_unlock(homenode, sharerWindow);
 		}
 
-		MPI_Win_lock(MPI_LOCK_SHARED, workrank, 0, sharerWindow);
+		MPI_Win_lock(MPI_LOCK_EXCLUSIVE, workrank, 0, sharerWindow);
 		globalSharers[classidx] |= tempsharer;
 		globalSharers[classidx+1] |= tempwriter;
 		MPI_Win_unlock(workrank, sharerWindow);
@@ -1266,6 +1266,7 @@ void self_invalidation(){
 				flushWriteBuffer();
 				flushed = 1;
 			}
+			MPI_Win_lock(MPI_LOCK_SHARED, workrank, 0, sharerWindow);
 			if(
 				 // node is single writer
 				 (globalSharers[classidx+1]==id)
@@ -1273,10 +1274,12 @@ void self_invalidation(){
 				 // No writer and assert that the node is a sharer
 				 ((globalSharers[classidx+1]==0) && ((globalSharers[classidx]&id)==id))
 				 ){
+				MPI_Win_unlock(workrank, sharerWindow);
 				touchedcache[i] =1;
 				/*nothing - we keep the pages, SD is done in flushWB*/
 			}
 			else{ //multiple writer or SO
+				MPI_Win_unlock(workrank, sharerWindow);
 				cacheControl[i].dirty=CLEAN;
 				cacheControl[i].state = INVALID;
 				touchedcache[i] =0;
