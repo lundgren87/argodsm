@@ -1448,6 +1448,7 @@ void printStatistics(){
 void *argo_get_global_base(){return startAddr;}
 size_t argo_get_global_size(){return size_of_all;}
 
-static inline unsigned long get_classification_index(uint64_t addr){
+//TODO: inline and static inline give errors using selective_si outside of argodsm
+unsigned long get_classification_index(uint64_t addr){
 	return (2*(addr/(pagesize*CACHELINE))) % classificationSize;
 }
