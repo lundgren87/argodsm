@@ -959,7 +959,7 @@ void * prefetchcacheline(void * x){
 
 void initmpi(){
 	int ret,initialized,thread_status;
-	int thread_level = MPI_THREAD_SERIALIZED;
+	int thread_level = MPI_THREAD_MULTIPLE;
 	MPI_Initialized(&initialized);
 	if (!initialized){
 		ret = MPI_Init_thread(NULL,NULL,thread_level,&thread_status);
