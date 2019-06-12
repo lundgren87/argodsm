@@ -45,7 +45,7 @@ For the MPI backend, they need to be run using the matching mpirun or mpiexec ap
 ```sh
 mpirun -n ${NNODES} ${EXECUTABLE}
 ```
-`${NNODES} is the number of hardware nodes available and ${EXECUTABLE} is the application to run. Further configuration may be necessary depending on the target system.
+`${NNODES}` is the number of hardware nodes available and `${EXECUTABLE}` is the application to run. Further configuration may be necessary depending on the target system.
 
 For more information please visit our [website](https://www.argodsm.com).
 There is also a [quickstart guide](https://etascale.github.io/argodsm/) (Please refer to the above instructions for building, installing and executing applications from the nanos6 branch) and a [tutorial](https://etascale.github.io/argodsm/tutorial.html).
