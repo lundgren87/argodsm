@@ -7,8 +7,6 @@
 #include "coherence.hpp"
 #include "swdsm.h"
 
-#define WRITE_BACK_DIRTY_ON_INVALIDATION 1
-
 /* EXTERNAL VARIABLES FROM BACKEND */
 /**@todo might declare the variables here later when we remove the old backend */
 extern control_data *cacheControl;
@@ -21,11 +19,14 @@ extern MPI_Win *globalDataWindow;
 
 static const unsigned int pagesize = 4096;
 
-//pthread_mutex_t tmmutex = PTHREAD_MUTEX_INITIALIZER;
-
+/**
+ * @brief Selectively self-invalidate the memory region given by addr and size
+ * @param addr The starting address of the memory region to invalidate
+ * @param size The size of the memory region to invalidate
+ */
 void selective_si(void *addr, size_t size){
-    //	printf("addr :%p, size:%d\n",addr,size);
-
+    unsigned long i;
+    
     if(size == 0){
         return;
     }
@@ -41,7 +42,6 @@ void selective_si(void *addr, size_t size){
     /*
      *Get the offset from the start of the global address space, lets call this 'global address'
      */
-//    pthread_mutex_lock(&tmmutex);  
     pthread_mutex_lock(&cachemutex);
     sem_wait(&ibsem);
     for(unsigned long p = lineindex_start; p <= lineindex_end; p++, addr+=pagesize){
@@ -56,24 +56,15 @@ void selective_si(void *addr, size_t size){
         unsigned long classidx = get_classification_index(glob_addr);
         unsigned long idx = getCacheIndex(glob_addr);
 
-#ifdef WRITE_BACK_DIRTY_ON_INVALIDATION
         argo_byte dirty = cacheControl[idx].dirty;
-        int i;
         if(dirty == DIRTY){
             /**@todo should only write back this page*/
+            cacheControl[idx].dirty = CLEAN;
             for(i = 0; i <CACHELINE; i++){
                 storepageDIFF(idx+i,glob_addr+pagesize*i);
-                cacheControl[idx+i].dirty = CLEAN;
-            }
-            for(i = 0; i < argo_get_nodes(); i++){
-                if(barwindowsused[i] == 1){
-                    MPI_Win_unlock(i, globalDataWindow[i]); //Sync write backs
-                    barwindowsused[i] = 0;
-                }
             }
 
         }
-#endif
 
         /*if(
         // node is single writer
@@ -90,7 +81,73 @@ void selective_si(void *addr, size_t size){
         mprotect((char*)startAddr + glob_addr, pagesize*CACHELINE, PROT_NONE);
         //}	
     }
+
+    // Make sure to sync writebacks
+    for(i = 0; i < argo_get_nodes(); i++){
+        if(barwindowsused[i] == 1){
+            MPI_Win_unlock(i, globalDataWindow[i]); //Sync write backs
+            barwindowsused[i] = 0;
+        }
+    }
+    
     sem_post(&ibsem);
     pthread_mutex_unlock(&cachemutex);
-    //pthread_mutex_unlock(&tmmutex);
+}
+
+
+/**
+ * @brief Selectively self-downgrade the memory region given by addr and size
+ * @param addr The starting address of the memory region to downgrade
+ * @param size The size of the memory region to downgrade
+ */
+void selective_sd(void *addr, size_t size){
+    unsigned long i;
+
+    //printf("SSD on node %d: [addr:%p] [size:%zu]\n", getID(), addr, size);
+
+    if(size == 0){
+        return;
+    }
+
+    // Get the start and end indexes of the memory region
+    unsigned long lineindex_start =  (unsigned long)((unsigned long)(addr) - (unsigned long)(startAddr));
+    unsigned long lineindex_end = lineindex_start + size - 1;
+    lineindex_start/=(pagesize*CACHELINE);
+    lineindex_end/=(pagesize*CACHELINE);
+
+    // Ensure exclusive cache access
+    pthread_mutex_lock(&cachemutex);
+    sem_wait(&ibsem);
+
+    // Iterate over each page to self-downgrade
+    for(unsigned long p = lineindex_start; p <= lineindex_end; p++, addr+=pagesize){
+        //printf("Node %d preparing to write back cache index %lu.\n", getID(), p);
+        // Get the offset from the start of the global address space
+        unsigned long glob_addr =  (unsigned long)((unsigned long)(addr) - (unsigned long)(startAddr));	
+        glob_addr/=(pagesize*CACHELINE);
+        glob_addr*=(pagesize*CACHELINE);
+
+        unsigned long idx = getCacheIndex(glob_addr);
+
+        // Write back this page if it is DIRTY and set it to CLEAN
+        argo_byte dirty = cacheControl[idx].dirty;
+        if(dirty == DIRTY){
+            mprotect((char*)startAddr + glob_addr, pagesize*CACHELINE, PROT_READ);
+            cacheControl[idx].dirty = CLEAN;
+            for(i = 0; i <CACHELINE; i++){
+                storepageDIFF(idx+i,glob_addr+pagesize*i);
+            }
+        }
+    }
+
+    // Make sure to sync writebacks
+    for(i = 0; i < argo_get_nodes(); i++){
+        if(barwindowsused[i] == 1){
+            MPI_Win_unlock(i, globalDataWindow[i]); //Sync write backs
+            barwindowsused[i] = 0;
+        }
+    }
+    // Release exclusive cache access
+    sem_post(&ibsem);
+    pthread_mutex_unlock(&cachemutex);
 }

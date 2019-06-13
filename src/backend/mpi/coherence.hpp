@@ -11,4 +11,6 @@
 
 void selective_si(void *addr, size_t size);
 
+void selective_sd(void *addr, size_t size);
+
 #endif /* argo_coherence_hpp */
