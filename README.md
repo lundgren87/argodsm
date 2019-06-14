@@ -14,9 +14,9 @@ programming model. It is currently being developed in Uppsala University.
 ### Build and install
 The following steps will fetch and build ArgoDSM. It is important to **check out the nanos6 branch before building**. If one wishes to skip building ArgoDSM tests, line 4-8 in the example below may be omitted, and `-DARGO_TESTS=OFF` set as CMake parameter. If one wishes to skip generating ArgoDSM documentation, this can be done by setting `-DBUILD_DOCUMENTATION=OFF` as CMake parameter.
 ```sh
-git clone https://gitlab.itwm.fraunhofer.de/EPEEC/argodsm.git
-git checkout nanos6
+git clone <repository path>
 cd argodsm
+git checkout nanos6  # Or alternatively, desired release.
 cd tests
 wget https://github.com/google/googletest/archive/release-1.7.0.zip
 unzip release-1.7.0.zip
