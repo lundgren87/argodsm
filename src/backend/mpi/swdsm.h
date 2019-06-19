@@ -105,6 +105,24 @@ typedef struct argo_statisticsStruct
 		unsigned long writebacks; 
 		/** @brief Number of locks */
 		int locks;
+                /** @brief Time spent in ssi */
+                double ssitime;
+                /** @brief Time spent in ssd */
+                double ssdtime;
+                /** @brief Time spent doing MPI_Put */
+                double puttime;
+                /** @brief Time spent doing pagediffs */
+                double difftime;
+                /** @brief Time spent waiting for cachemutex */
+                double cachemutextime;
+                /** @brief Time spent waiting for cachemutex */
+                double cachemutextime_load;
+                /** @brief Time spent waiting for cachemutex */
+                double cachemutextime_store;
+                /** @brief Time spent waiting for cachemutex */
+                double cachemutextime_ssi;
+                /** @brief Time spent waiting for cachemutex */
+                double cachemutextime_ssd;
 } argo_statistics;
 
 /*constants for control values*/
