@@ -325,6 +325,7 @@ static void restore_old_sigaction() {
 void handler(int sig, siginfo_t *si, void *unused){
 	UNUSED_PARAM(sig);
 	UNUSED_PARAM(unused);
+        double cachet1, cachet2;
 	double t1 = MPI_Wtime();
 
 	/* check whether address is out of bounds (lower end) of shared memory area */
@@ -332,7 +333,8 @@ void handler(int sig, siginfo_t *si, void *unused){
 		restore_old_sigaction();
 		return;
 	}
-	unsigned long tag;
+     
+        unsigned long tag;
 	argo_byte owner,state;
 	unsigned long distrAddr =  (unsigned long)((unsigned long)(si->si_addr) - (unsigned long)(startAddr));
 
@@ -357,7 +359,10 @@ void handler(int sig, siginfo_t *si, void *unused){
 	unsigned long id = 1 << getID();
 	unsigned long invid = ~id;
 
+        cachet1 = MPI_Wtime();
 	pthread_mutex_lock(&cachemutex);
+        cachet2 = MPI_Wtime();
+        stats.cachemutextime += cachet2-cachet1;
 
 	/* page is local */
 	if(homenode == (getID())){
@@ -434,6 +439,7 @@ void handler(int sig, siginfo_t *si, void *unused){
 		}
 		sem_post(&ibsem);
 		pthread_mutex_unlock(&cachemutex);
+	        stats.cachemutextime_load += cachet2-cachet1;
 		return;
 	}
 
@@ -458,6 +464,7 @@ void handler(int sig, siginfo_t *si, void *unused){
 			pthread_mutex_unlock(&cachemutex);
 			double t2 = MPI_Wtime();
 			stats.loadtime+=t2-t1;
+	                stats.cachemutextime_load += cachet2-cachet1;
 			return;
 		}
 		else if(prefetchline[0] == GLOBAL_NULL && loadline[0] != GLOBAL_NULL){
@@ -477,6 +484,7 @@ void handler(int sig, siginfo_t *si, void *unused){
 			pthread_mutex_unlock(&cachemutex);
 			double t2 = MPI_Wtime();
 			stats.loadtime+=t2-t1;
+	                stats.cachemutextime_load += cachet2-cachet1;
 			return;
 		}
 		else{
@@ -502,6 +510,7 @@ void handler(int sig, siginfo_t *si, void *unused){
 			pthread_mutex_unlock(&cachemutex);
 			double t2 = MPI_Wtime();
 			stats.loadtime+=t2-t1;
+	                stats.cachemutextime_load += cachet2-cachet1;
 			return;
 		}
 	}
@@ -513,6 +522,7 @@ void handler(int sig, siginfo_t *si, void *unused){
 		pthread_mutex_unlock(&cachemutex);
 		double t2 = MPI_Wtime();
 		stats.loadtime+=t2-t1;
+	        stats.cachemutextime_load += cachet2-cachet1;
 		return;
 
 	}
@@ -523,6 +533,7 @@ void handler(int sig, siginfo_t *si, void *unused){
 		pthread_mutex_unlock(&cachemutex);
 		double t2 = MPI_Wtime();
 		stats.loadtime+=t2-t1;
+	        stats.cachemutextime_load += cachet2-cachet1;
 		return;
 	}
 
@@ -595,13 +606,15 @@ void handler(int sig, siginfo_t *si, void *unused){
 	pthread_mutex_unlock(&cachemutex);
 	double t2 = MPI_Wtime();
 	stats.storetime += t2-t1;
-	return;
+	stats.cachemutextime_store += cachet2-cachet1;
+        return;
 }
 
 
 unsigned long getHomenode(unsigned long addr){
 	unsigned long homenode = addr/size_of_chunk;
 	if(homenode >=(unsigned long)numtasks){
+                printf("Homenode: %lu\n - Exiting.", homenode);
 		exit(EXIT_FAILURE);
 	}
 	return homenode;
@@ -1293,6 +1306,7 @@ void self_invalidation(){
 
 void swdsm_argo_barrier(int n){ //BARRIER
 	double time1,time2;
+        double cachet1,cachet2;
 	pthread_t barrierlockholder;
 	time1 = MPI_Wtime();
 	pthread_barrier_wait(&threadbarrier[n]);
@@ -1305,7 +1319,10 @@ void swdsm_argo_barrier(int n){ //BARRIER
 
 	if(pthread_mutex_trylock(&barriermutex) == 0){
 		barrierlockholder = pthread_self();
-		pthread_mutex_lock(&cachemutex);
+                cachet1 = MPI_Wtime();
+	        pthread_mutex_lock(&cachemutex);
+                cachet2 = MPI_Wtime();
+                stats.cachemutextime += cachet2-cachet1;
 		sem_wait(&ibsem);
 		flushWriteBuffer();
 		MPI_Barrier(workcomm);
@@ -1348,8 +1365,12 @@ void argo_reset_coherence(int n){
 }
 
 void argo_acquire(){
-	int flag;
+        int flag;
+        double cachet1,cachet2;
+        cachet1 = MPI_Wtime();
 	pthread_mutex_lock(&cachemutex);
+        cachet2 = MPI_Wtime();
+        stats.cachemutextime += cachet2-cachet1;
 	sem_wait(&ibsem);
 	self_invalidation();
 	MPI_Iprobe(MPI_ANY_SOURCE,MPI_ANY_TAG,workcomm,&flag,MPI_STATUS_IGNORE);
@@ -1360,7 +1381,11 @@ void argo_acquire(){
 
 void argo_release(){
 	int flag;
+        double cachet1,cachet2;
+        cachet1 = MPI_Wtime();
 	pthread_mutex_lock(&cachemutex);
+        cachet2 = MPI_Wtime();
+        stats.cachemutextime += cachet2-cachet1;
 	sem_wait(&ibsem);
 	flushWriteBuffer();
 	MPI_Iprobe(MPI_ANY_SOURCE,MPI_ANY_TAG,workcomm,&flag,MPI_STATUS_IGNORE);
@@ -1390,10 +1415,20 @@ void clearStatistics(){
 	stats.loads = 0;
 	stats.barriers = 0;
 	stats.locks = 0;
+        stats.ssitime = 0;
+        stats.ssdtime = 0;
+        stats.puttime = 0;
+        stats.difftime = 0;
+        stats.cachemutextime = 0;
+        stats.cachemutextime_load = 0;
+        stats.cachemutextime_store = 0;
+        stats.cachemutextime_ssi = 0;
+        stats.cachemutextime_ssd = 0;
 }
 
 void storepageDIFF(unsigned long index, unsigned long addr){
 	unsigned int i,j;
+        double t1diff, t2diff, t1put, t2put;
 	int cnt = 0;
 	unsigned long homenode = getHomenode(addr);
 	unsigned long offset = getOffset(addr);
@@ -1402,6 +1437,7 @@ void storepageDIFF(unsigned long index, unsigned long addr){
 	char * real = (char *)startAddr+addr;
 	size_t drf_unit = sizeof(char);
 
+        t1diff = MPI_Wtime();
 	if(barwindowsused[homenode] == 0){
 		MPI_Win_lock(MPI_LOCK_EXCLUSIVE, homenode, 0, globalDataWindow[homenode]);
 		barwindowsused[homenode] = 1;
@@ -1420,15 +1456,23 @@ void storepageDIFF(unsigned long index, unsigned long addr){
 		}
 		else{
 			if(cnt > 0){
+                                t1put = MPI_Wtime();
 				MPI_Put(&real[i-cnt], cnt, MPI_BYTE, homenode, offset+(i-cnt), cnt, MPI_BYTE, globalDataWindow[homenode]);
-				cnt = 0;
+				t2put = MPI_Wtime();
+                                cnt = 0;
+                                stats.puttime += t2put-t1put;
 			}
 		}
 	}
 	if(cnt > 0){
+                t1put = MPI_Wtime();
 		MPI_Put(&real[i-cnt], cnt, MPI_BYTE, homenode, offset+(i-cnt), cnt, MPI_BYTE, globalDataWindow[homenode]);
-	}
+	        t2put = MPI_Wtime();
+                stats.puttime += t2put-t1put;
+        }
+        t2diff = MPI_Wtime();
 	stats.stores++;
+        stats.difftime += t2diff-t1diff;
 }
 
 void printStatistics(){
@@ -1440,8 +1484,11 @@ void printStatistics(){
 		stats.storetime, stats.loadtime, stats.flushtime, stats.writebacktime);
 	printf("# Barriertime : %lf, selfinvtime %lf\n",stats.barriertime, stats.selfinvtime);
 	printf("stores:%lu, loads:%lu, barriers:%lu\n",stats.stores,stats.loads,stats.barriers);
-	printf("Locks:%d\n",stats.locks);
-	printf("########################################################\n");
+	printf("Locks:%d, difftime:%lf, puttime:%lf\n",stats.locks, stats.difftime, stats.puttime);
+	printf("SSItime:%lf, SSDtime:%lf, Cachemutextime:%lf\n", stats.ssitime, stats.ssdtime, stats.cachemutextime);
+	printf("Cachemutextime - load:%lf, store:%lf\n", stats.cachemutextime_load, stats.cachemutextime_store);
+	printf("Cachemutextime - ssi:%lf, ssd:%lf\n", stats.cachemutextime_ssi, stats.cachemutextime_ssd);
+        printf("########################################################\n");
 	printf("\n\n");
 }
 
