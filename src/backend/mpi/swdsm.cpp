@@ -56,10 +56,8 @@ unsigned long  *writebuffer;
 unsigned long  writebufferstart;
 /** @brief Least recent entry in the writebuffer*/
 unsigned long  writebufferend;
-/** @brief Writethread wait on this to start a write from the writebuffer */
-sem_t writerwaitsem;
-/** @brief Writethread signals this when writing from writebuffer is done */
-sem_t writerstartsem;
+/** @brief writeback from writebuffer helper function */
+void write_back_writebuffer();
 /** @brief Lock for the writebuffer*/
 pthread_mutex_t wbmutex = PTHREAD_MUTEX_INITIALIZER;
 
@@ -208,8 +206,7 @@ void addToWriteBuffer(unsigned long cacheIndex){
 	unsigned long wbendplustwo = ((writebufferend+2)%writebuffersize);
 	if(wbendplusone == writebufferstart ){ // Buffer is full wait for slot to be empty
 		double t1 = MPI_Wtime();
-		sem_post(&writerstartsem);
-		sem_wait(&writerwaitsem);
+		write_back_writebuffer();
 		double t4 = MPI_Wtime();
 		stats.writebacks+=CACHELINE;
 		stats.writebacktime+=(t4-t1);
@@ -594,40 +591,32 @@ unsigned long getOffset(unsigned long addr){
 	return offset;
 }
 
-void *writeloop(void * x){
-	UNUSED_PARAM(x);
+void write_back_writebuffer() {
 	unsigned long i;
 	unsigned long oldstart;
 	unsigned long idx,tag;
+	sem_wait(&ibsem);
 
-	while(1){
-
-		sem_wait(&writerstartsem);
-		sem_wait(&ibsem);
-
-		oldstart = writebufferstart;
-		i = oldstart;
-		idx = writebuffer[i];
-		tag = cacheControl[idx].tag;
-		writebuffer[i] = GLOBAL_NULL;
-		if(tag != GLOBAL_NULL && idx != GLOBAL_NULL && cacheControl[idx].dirty == DIRTY){
-			mprotect((char*)startAddr+tag,CACHELINE*pagesize,PROT_READ);
-			for(i = 0; i <CACHELINE; i++){
-				storepageDIFF(idx+i,tag+pagesize*i);
-				cacheControl[idx+i].dirty = CLEAN;
-			}
+	oldstart = writebufferstart;
+	i = oldstart;
+	idx = writebuffer[i];
+	tag = cacheControl[idx].tag;
+	writebuffer[i] = GLOBAL_NULL;
+	if(tag != GLOBAL_NULL && idx != GLOBAL_NULL && cacheControl[idx].dirty == DIRTY){
+		mprotect((char*)startAddr+tag,CACHELINE*pagesize,PROT_READ);
+		for(i = 0; i <CACHELINE; i++){
+			storepageDIFF(idx+i,tag+pagesize*i);
+			cacheControl[idx+i].dirty = CLEAN;
 		}
-		for(i = 0; i < (unsigned long)numtasks; i++){
-			if(barwindowsused[i] == 1){
-				MPI_Win_unlock(i, globalDataWindow[i]);
-				barwindowsused[i] = 0;
-			}
-		}
-		writebufferstart = (writebufferstart+1)%writebuffersize;
-		sem_post(&ibsem);
-		sem_post(&writerwaitsem);
 	}
-	return nullptr;
+	for(i = 0; i < (unsigned long)numtasks; i++){
+		if(barwindowsused[i] == 1){
+			MPI_Win_unlock(i, globalDataWindow[i]);
+			barwindowsused[i] = 0;
+		}
+	}
+	writebufferstart = (writebufferstart+1)%writebuffersize;
+	sem_post(&ibsem);
 }
 
 void * loadcacheline(void * x){
@@ -1153,9 +1142,6 @@ void argo_initialize(std::size_t argo_size, std::size_t cache_size){
 	sem_init(&prefetchstartsem,0,0);
 	sem_init(&prefetchwaitsem,0,0);
 
-	sem_init(&writerstartsem,0,0);
-	sem_init(&writerwaitsem,0,0);
-
 	sem_init(&ibsem,0,1);
 	sem_init(&globallocksem,0,1);
 
@@ -1187,7 +1173,6 @@ void argo_initialize(std::size_t argo_size, std::size_t cache_size){
 
 	pthread_create(&loadthread1,NULL,&loadcacheline,NULL);
 	pthread_create(&loadthread2,NULL,&prefetchcacheline,(void*)NULL);
-	pthread_create(&writethread,NULL,&writeloop,(void*)NULL);
 	argo_reset_coherence(1);
 }
 
@@ -1202,7 +1187,6 @@ void argo_finalize(){
 	MPI_Barrier(MPI_COMM_WORLD);
 	pthread_cancel(loadthread1);
 	pthread_cancel(loadthread2);
-	pthread_cancel(writethread);
 
 	for(i=0; i <numtasks;i++){
 		if(i==workrank){
