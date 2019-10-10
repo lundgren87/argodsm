@@ -19,13 +19,14 @@ pthread_t loadthread2;
 pthread_t writethread;
 /** @brief For matching threads to more sensible thread IDs */
 pthread_t tid[NUM_THREADS] = {0};
+/** @brief Protects thread registration and pinning */
+pthread_mutex_t thread_setup_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 /*Barrier*/
 /** @brief  Locks access to part that does SD in the global barrier */
 pthread_mutex_t barriermutex = PTHREAD_MUTEX_INITIALIZER;
 /** @brief Thread local barrier used to first wait for all local threads in the global barrier*/
 pthread_barrier_t *threadbarrier;
-
 
 /*Pagecache*/
 /** @brief  Size of the cache in number of pages*/
@@ -45,9 +46,7 @@ char* cacheData;
 /** @brief Copy of the local cache to keep twinpages for later being able to DIFF stores */
 char * pagecopy;
 /** @brief Protects the pagecache */
-pthread_mutex_t cachemutex = PTHREAD_MUTEX_INITIALIZER;
-/** @brief Protects thread registration and pinning */
-pthread_mutex_t thread_setup_mutex = PTHREAD_MUTEX_INITIALIZER;
+cache_mutex_struct *cachemutex;
 
 /*Writebuffer*/
 /** @brief  Size of the writebuffer*/
@@ -120,6 +119,10 @@ int locknumber=0;
 unsigned long *allocationOffset;
 /** @brief  Protects access to global allocator*/
 pthread_mutex_t gmallocmutex = PTHREAD_MUTEX_INITIALIZER;
+
+/*Synchronization*/
+/** @brief  Ensures synchronization is seraialized and exclusive with handler execution. */
+pthread_rwlock_t synclock = PTHREAD_RWLOCK_INITIALIZER;
 
 /*Common*/
 /** @brief  Points to start of global address space*/
@@ -317,6 +320,8 @@ void handler(int sig, siginfo_t *si, void *unused){
 	unsigned long remCACHELINE = alignedDistrAddr % (CACHELINE*pagesize);
 	unsigned long lineAddr = alignedDistrAddr - remCACHELINE;
 	unsigned long classidx = get_classification_index(lineAddr);
+        unsigned long lockindex = getCacheIndex(alignedDistrAddr);
+        unsigned long prefetchindex = getCacheIndex(alignedDistrAddr+CACHELINE*pagesize);
 
 	unsigned long * localAlignedAddr = (unsigned long *)((char*)startAddr + lineAddr);
 	unsigned long startIndex = getCacheIndex(lineAddr);
@@ -327,7 +332,9 @@ void handler(int sig, siginfo_t *si, void *unused){
 	unsigned long id = 1 << getID();
 	unsigned long invid = ~id;
 
-	pthread_mutex_lock(&cachemutex);
+        /* Acquire synclock as reader and cachemutex corresponding to classidx. */
+        pthread_rwlock_rdlock(&synclock);
+	pthread_mutex_lock(&cachemutex[lockindex].mutex);
 
 	/* page is local */
 	if(homenode == (getID())){
@@ -401,7 +408,8 @@ void handler(int sig, siginfo_t *si, void *unused){
 			vm::map_memory(localAlignedAddr, pagesize*CACHELINE, cacheoffset+offset, PROT_READ|PROT_WRITE);
 
 		}
-		pthread_mutex_unlock(&cachemutex);
+	        pthread_mutex_unlock(&cachemutex[lockindex].mutex);
+	        pthread_rwlock_unlock(&synclock);
 		return;
 	}
 
@@ -410,10 +418,14 @@ void handler(int sig, siginfo_t *si, void *unused){
 
 	if(state == INVALID || (tag != lineAddr && tag != GLOBAL_NULL)){
 		load_cache_entry(alignedDistrAddr, (startIndex%cachesize));
+	        pthread_mutex_unlock(&cachemutex[lockindex].mutex);
 #ifdef DUAL_LOAD
-		prefetch_cache_entry((alignedDistrAddr+CACHELINE*pagesize), ((startIndex+CACHELINE)%cachesize));
+	        if(pthread_mutex_trylock(&cachemutex[prefetchindex].mutex) == 0){
+		    prefetch_cache_entry((alignedDistrAddr+CACHELINE*pagesize), ((startIndex+CACHELINE)%cachesize));
+	            pthread_mutex_unlock(&cachemutex[prefetchindex].mutex);
+                }
 #endif
-		pthread_mutex_unlock(&cachemutex);
+	        pthread_rwlock_unlock(&synclock);
 		double t2 = MPI_Wtime();
 		stats.loadtime+=t2-t1;
 		return;
@@ -423,7 +435,8 @@ void handler(int sig, siginfo_t *si, void *unused){
 	line *= CACHELINE;
 
 	if(cacheControl[line].dirty == DIRTY){
-		pthread_mutex_unlock(&cachemutex);
+	        pthread_mutex_unlock(&cachemutex[lockindex].mutex);
+	        pthread_rwlock_unlock(&synclock);
 		return;
 	}
 
@@ -483,7 +496,8 @@ void handler(int sig, siginfo_t *si, void *unused){
 	memcpy(copy,real,CACHELINE*pagesize);
 	addToWriteBuffer(startIndex);
 	mprotect(localAlignedAddr, pagesize*CACHELINE,PROT_WRITE|PROT_READ);
-	pthread_mutex_unlock(&cachemutex);
+	pthread_mutex_unlock(&cachemutex[lockindex].mutex);
+	pthread_rwlock_unlock(&synclock);
 	double t2 = MPI_Wtime();
 	stats.storetime += t2-t1;
 	return;
@@ -713,9 +727,9 @@ void prefetch_cache_entry(unsigned long prefetchtag, unsigned long prefetchline)
 
 	if(cacheControl[startidx].tag  != lineAddr){
 		if(cacheControl[startidx].tag  != lineAddr){
-			if(pthread_mutex_trylock(&wbmutex) != 0){
-				pthread_mutex_lock(&wbmutex);
-			}
+		        if(pthread_mutex_trylock(&wbmutex) != 0){
+			        pthread_mutex_lock(&wbmutex);
+		        }
 
 			void * tmpptr2 = (char*)startAddr + cacheControl[startidx].tag;
 			if(cacheControl[startidx].tag != GLOBAL_NULL && cacheControl[startidx].tag  != lineAddr){
@@ -744,9 +758,9 @@ void prefetch_cache_entry(unsigned long prefetchtag, unsigned long prefetchline)
 				mprotect(tmpptr2,blocksize,PROT_NONE);
 
 			}
-			pthread_mutex_unlock(&wbmutex);
-
-		}
+                       pthread_mutex_unlock(&wbmutex);
+		
+               }
 	}
 
 	stats.loads++;
@@ -915,6 +929,12 @@ void argo_initialize(std::size_t argo_size, std::size_t cache_size){
 	cachesize /= pagesize;
 	cachesize /= CACHELINE;
 	cachesize *= CACHELINE;
+
+        /** Allocate memory for cache mutex struct and initialize it. */
+        cachemutex = (cache_mutex_struct *) malloc(sizeof(cache_mutex_struct)*cachesize);
+        for(i = 0; i < cachesize; i++){
+            pthread_mutex_init(&cachemutex[i].mutex, NULL);
+        }
 
 	classificationSize = 2*cachesize; // Could be smaller ?
 	writebuffersize = WRITE_BUFFER_PAGES/CACHELINE;
@@ -1129,11 +1149,11 @@ void swdsm_argo_barrier(int n){ //BARRIER
 
 	if(pthread_mutex_trylock(&barriermutex) == 0){
 		barrierlockholder = pthread_self();
-		pthread_mutex_lock(&cachemutex);
+	        pthread_rwlock_wrlock(&synclock);
 		flushWriteBuffer();
 		MPI_Barrier(workcomm);
 		self_invalidation();
-		pthread_mutex_unlock(&cachemutex);
+	        pthread_rwlock_unlock(&synclock);
 	}
 
 	pthread_barrier_wait(&threadbarrier[n]);
@@ -1164,19 +1184,19 @@ void argo_reset_coherence(int n){
 
 void argo_acquire(){
 	int flag;
-	pthread_mutex_lock(&cachemutex);
+	pthread_rwlock_wrlock(&synclock);
 	self_invalidation();
 	MPI_Iprobe(MPI_ANY_SOURCE,MPI_ANY_TAG,workcomm,&flag,MPI_STATUS_IGNORE);
-	pthread_mutex_unlock(&cachemutex);
+	pthread_rwlock_unlock(&synclock);
 }
 
 
 void argo_release(){
 	int flag;
-	pthread_mutex_lock(&cachemutex);
+	pthread_rwlock_wrlock(&synclock);
 	flushWriteBuffer();
 	MPI_Iprobe(MPI_ANY_SOURCE,MPI_ANY_TAG,workcomm,&flag,MPI_STATUS_IGNORE);
-	pthread_mutex_unlock(&cachemutex);
+	pthread_rwlock_unlock(&synclock);
 }
 
 void argo_acq_rel(){

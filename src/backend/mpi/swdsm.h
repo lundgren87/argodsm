@@ -107,6 +107,14 @@ typedef struct argo_statisticsStruct
 		int locks;
 } argo_statistics;
 
+/** @brief Struct containing cache mutex and padding to 64b. */
+struct cache_mutex_struct {
+    /** @brief Mutex protecting one cache index */
+    pthread_mutex_t mutex;
+    /** @brief Char array padding to 64b to minimize false sharing. */
+    char padding[64-sizeof(mutex)];
+};
+
 /*constants for control values*/
 /** @brief Constant for invalid states */
 static const argo_byte INVALID=0;
