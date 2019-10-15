@@ -105,14 +105,46 @@ typedef struct argo_statisticsStruct
 		unsigned long writebacks; 
 		/** @brief Number of locks */
 		int locks;
+                /** @brief Time waiting for lock */
+                double globaldatalocktime;
+                /** @brief Time waiting for lock */
+                double sharerlocktime;
+                /** @brief Time waiting for lock */
+                double cachelocktime;
 } argo_statistics;
 
 /** @brief Struct containing cache mutex and padding to 64b. */
-struct cache_mutex_struct {
+struct cache_lock_struct {
     /** @brief Mutex protecting one cache index */
-    pthread_mutex_t mutex;
+    pthread_spinlock_t structlock;
+
+    /** @brief time spent waiting for lock */
+    double waittime;
+
     /** @brief Char array padding to 64b to minimize false sharing. */
-    char padding[64-sizeof(mutex)];
+    char padding[64-sizeof(structlock)-sizeof(waittime)];
+
+    /** @brief initializes the lock */
+    int init(){
+        waittime = 0;
+        return pthread_spin_init(&structlock, PTHREAD_PROCESS_PRIVATE);
+    }
+    /** @brief acquire lock */
+    int lock(){
+        double start = MPI_Wtime();
+        int ret = pthread_spin_lock(&structlock);
+        double end = MPI_Wtime();
+        waittime += end-start;
+        return ret;
+    }
+    /** @brief attempt to acquire trylock */
+    int trylock(){
+        return pthread_spin_trylock(&structlock);
+    }
+    /** @brief release lock */
+    int unlock(){
+        return pthread_spin_unlock(&structlock);
+    }
 };
 
 /*constants for control values*/
