@@ -113,7 +113,10 @@ typedef struct argo_statisticsStruct
                 double cachelocktime;
 } argo_statistics;
 
-/** @brief Struct containing cache mutex and padding to 64b. */
+/** 
+ * @brief Struct containing cache mutex and padding to 64b.
+ * @todo  Move to own class or better place?
+ * */
 struct cache_lock_struct {
     /** @brief Mutex protecting one cache index */
     pthread_spinlock_t structlock;
@@ -146,6 +149,7 @@ struct cache_lock_struct {
         return pthread_spin_unlock(&structlock);
     }
 };
+
 
 /*constants for control values*/
 /** @brief Constant for invalid states */
@@ -378,5 +382,6 @@ unsigned long getOffset(unsigned long addr);
  * @return index for sharer vector for the page
  */
 inline unsigned long get_classification_index(uint64_t addr);
+
 #endif /* argo_swdsm_h */
 
