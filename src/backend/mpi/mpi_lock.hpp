@@ -20,7 +20,8 @@ private:
     std::atomic_flag unlockflag;
 
     /** @brief Timekeeping */
-    std::atomic<double> waittime;
+    std::atomic<double> waittime, flushtime;
+    double locktime, unlocktime, maxtime;
 
 public:
     /**
@@ -32,6 +33,10 @@ public:
         m_act(0),
         cnt_flush(0),
         waittime(0),
+        flushtime(0),
+        locktime(0),
+        unlocktime(0),
+        maxtime(0),
         unlockflag(ATOMIC_FLAG_INIT)
     { };
 
@@ -67,10 +72,22 @@ public:
      */
     double get_waittime();
 
+    /** 
+    * @brief  get timekeeping statistics
+    * @return the total time spent flushing the MPI Windows
+    */
+    double get_flushtime();
+
+    /** 
+     * @brief  get timekeeping statistics
+     * @return the maximum time spent holding an MPI window locked
+     */
+    double get_maxtime();
+
     /**
      * @brief reset the timekeeping statistics
      */
-    void reset_waittime();
+    void reset_stats();
 };
 
 #endif /* mpi_lock_h */

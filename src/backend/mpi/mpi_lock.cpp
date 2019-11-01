@@ -36,6 +36,7 @@ void mpi_lock::lock(int lock_type, int target, MPI_Win window){
             int expected=0;
             // TODO: Change to exchange when done bughunting
             if(m_act.compare_exchange_strong(expected, lock_type)){
+                locktime = MPI_Wtime();
                 MPI_Win_lock(lock_type, target, 0, window);
                 //printf("[%d:%lu] %s[%d]: MPI Locked (lock-MPI).\n", getID(), pthread_self(), wname, target);
                 /* Indicate that lock is held */
@@ -59,7 +60,7 @@ void mpi_lock::lock(int lock_type, int target, MPI_Win window){
     }
     /* Update time spent in lock atomically */
     double end = MPI_Wtime();
-    for (double g = MPI_Wtime(); !waittime.compare_exchange_strong(g, (g+end-start)););
+    for (double g = waittime.load(); !waittime.compare_exchange_strong(g, (g+end-start)););
 }
 
 /** 
@@ -95,6 +96,10 @@ void mpi_lock::unlock(int target, MPI_Win window, bool flush){
         //printf("[%d:%lu] %s[%d]: Unlocking MPI (cur=%d).\n", getID(), pthread_self(), wname, target, cur);
         /* Unlock the MPI window on the target process */
         MPI_Win_unlock(target, window);
+        unlocktime = MPI_Wtime();
+        if((unlocktime-locktime) > maxtime){
+            maxtime = unlocktime-locktime;
+        }
         //printf("[%d:%lu] %s[%d]: MPI Unlocked (cur=%d).\n", getID(), pthread_self(), wname, target, cur);
         m_act = 0;
         //printf("[%d:%lu] %s[%d]: Ack reset.\n", getID(), pthread_self(), wname, target);
@@ -103,14 +108,17 @@ void mpi_lock::unlock(int target, MPI_Win window, bool flush){
     else if(flush){
         unlockflag.clear(std::memory_order_release);
         //printf("[%d:%lu] %s[%d]: Flushing (cur=%d).\n", getID(), pthread_self(), wname, target, cur);
+        double flushstart = MPI_Wtime();
         if(m_act == MPI_LOCK_SHARED){
             MPI_Win_flush_local(target, window);
         }else{
             // TODO: Only tested to work with impi 2019.5, need to find solution
             MPI_Win_flush(target, window);
         }
+        double flushend = MPI_Wtime();
         //printf("[%d:%lu] %s[%d]: Flushed (cur=%d).\n", getID(), pthread_self(), wname, target, cur);
         cnt_flush--;
+        for (double g = flushtime.load(); !flushtime.compare_exchange_strong(g, (g+flushend-flushstart)););
         //printf("[%d:%lu] %s[%d]: Decremented flush (flush).\n", getID(), pthread_self(), wname, target);
     }else{
         unlockflag.clear(std::memory_order_release);
@@ -135,6 +143,7 @@ bool mpi_lock::trylock(int lock_type, int target, MPI_Win window){
         while(m_act);
         int expected=0;
         if(!m_act.compare_exchange_weak(expected, lock_type)){
+            locktime = MPI_Wtime();
             MPI_Win_lock(lock_type, target, 0, window);
             m_hop = 1;
         }else{
@@ -149,13 +158,35 @@ bool mpi_lock::trylock(int lock_type, int target, MPI_Win window){
     return false;
 }
 
+/** 
+ * @brief  get timekeeping statistics
+ * @return the total time spent for all threads in the mpi_lock
+ */
 double mpi_lock::get_waittime(){
-    return waittime.load(std::memory_order_acquire);
+    return waittime.load();
+}
+
+/** 
+ * @brief  get timekeeping statistics
+ * @return the total time spent flushing the MPI Windows
+ */
+double mpi_lock::get_flushtime(){
+    return flushtime.load();
+}
+
+/** 
+ * @brief  get timekeeping statistics
+ * @return the maximum time spent holding an MPI window locked
+ */
+double mpi_lock::get_maxtime(){
+    return maxtime;
 }
 
 /**
  * @brief reset the timekeeping statistics
  */
-void mpi_lock::reset_waittime(){
-    waittime.store(0, std::memory_order_release);
+void mpi_lock::reset_stats(){
+    waittime.store(0);
+    flushtime.store(0);
+    maxtime = 0;
 }

@@ -107,8 +107,16 @@ typedef struct argo_statisticsStruct
 		int locks;
                 /** @brief Time waiting for lock */
                 double globaldatalocktime;
+                /** @brief Max time holding a MPI Window */
+                double globaldatalockmaxtime;
+                /** @brief Total time performing MPI_Win_flush */
+                double globaldatalockflushtime;
                 /** @brief Time waiting for lock */
                 double sharerlocktime;
+                /** @brief Max time holding a MPI Window */
+                double sharerlockmaxtime;
+                /** @brief Total time performing MPI_Win_flush */
+                double sharerlockflushtime;
                 /** @brief Time waiting for lock */
                 double cachelocktime;
 } argo_statistics;

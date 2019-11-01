@@ -1287,12 +1287,16 @@ void clearStatistics(){
 	stats.barriers = 0;
 	stats.locks = 0;
         stats.globaldatalocktime = 0;
+        stats.globaldatalockmaxtime = 0;
+        stats.globaldatalockflushtime = 0;
         stats.sharerlocktime = 0;
+        stats.sharerlockmaxtime = 0;
+        stats.sharerlockflushtime = 0;
         stats.cachelocktime = 0;
 
         for(int i=0; i<numtasks; i++){
-            globaldatalock[i].reset_waittime();
-            sharerlock[i].reset_waittime();
+            globaldatalock[i].reset_stats();
+            sharerlock[i].reset_stats();
         }
 }
 
@@ -1339,13 +1343,23 @@ void storepageDIFF(unsigned long index, unsigned long addr){
 void printStatistics(){
         for(int i=0; i<numtasks; i++){
             stats.globaldatalocktime += globaldatalock[i].get_waittime();
-        }
-        for(int i=0; i<numtasks; i++){
+            stats.globaldatalockflushtime += globaldatalock[i].get_flushtime();
+            if(globaldatalock[i].get_maxtime() > stats.globaldatalockmaxtime){
+                stats.globaldatalockmaxtime = globaldatalock[i].get_maxtime();
+            }
+
             stats.sharerlocktime += sharerlock[i].get_waittime();
+            stats.sharerlockflushtime += sharerlock[i].get_flushtime();
+            if(sharerlock[i].get_maxtime() > stats.sharerlockmaxtime){
+                stats.sharerlockmaxtime = sharerlock[i].get_maxtime();
+            }
         }
         for(int i=0; i<cachesize; i++){
             stats.cachelocktime += cachelock[i].waittime;
         }
+
+
+
 	printf("#####################STATISTICS#########################\n");
 	printf("# PROCESS ID %d \n",workrank);
 	printf("cachesize:%ld,CACHELINE:%ld wbsize:%ld\n",cachesize,CACHELINE,writebuffersize);
@@ -1355,6 +1369,7 @@ void printStatistics(){
 	printf("# Barriertime : %lf, selfinvtime %lf\n",stats.barriertime, stats.selfinvtime);
 	printf("stores:%lu, loads:%lu, barriers:%lu\n",stats.stores,stats.loads,stats.barriers);
 	printf("locktime: cache:%lf, globaldata:%lf, sharer:%lf\n",stats.cachelocktime,stats.globaldatalocktime,stats.sharerlocktime);
+	printf("lock detail: globaldata:(max:%lf flush:%lf), sharer:(max:%lf, flush:%lf)\n",stats.globaldatalockmaxtime, stats.globaldatalockflushtime, stats.sharerlockmaxtime, stats.sharerlockflushtime);
 	printf("Locks:%d\n",stats.locks);
 	printf("########################################################\n");
 	printf("\n\n");
