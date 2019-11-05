@@ -327,6 +327,8 @@ void handler(int sig, siginfo_t *si, void *unused){
 	unsigned long lineAddr = alignedDistrAddr - remCACHELINE;
 	unsigned long classidx = get_classification_index(lineAddr);
         unsigned long lockindex = getCacheIndex(alignedDistrAddr);
+        //unsigned long lockindex = 0; //TODO: REMOVE
+        //unsigned long prefetchindex = 0;
         unsigned long prefetchindex = getCacheIndex(alignedDistrAddr+CACHELINE*pagesize);
 
 	unsigned long * localAlignedAddr = (unsigned long *)((char*)startAddr + lineAddr);
@@ -1341,17 +1343,45 @@ void storepageDIFF(unsigned long index, unsigned long addr){
 }
 
 void printStatistics(){
+        double gd_maxlocktime, gd_maxunlocktime, gd_holdersperlock;
+        double sh_maxlocktime, sh_maxunlocktime, sh_holdersperlock;
+        double gd_numholders, gd_numlocks;
+        double sh_numholders, sh_numlocks;
+        gd_maxlocktime=gd_maxunlocktime=gd_holdersperlock=0;
+        sh_maxlocktime=sh_maxunlocktime=sh_holdersperlock=0;
+        gd_numholders=gd_numlocks=sh_numholders=sh_numlocks=0;
+
         for(int i=0; i<numtasks; i++){
+            /* Globaldatalock stats */
             stats.globaldatalocktime += globaldatalock[i].get_waittime();
             stats.globaldatalockflushtime += globaldatalock[i].get_flushtime();
             if(globaldatalock[i].get_maxtime() > stats.globaldatalockmaxtime){
                 stats.globaldatalockmaxtime = globaldatalock[i].get_maxtime();
             }
+            gd_numholders += globaldatalock[i].get_numholders();
+            gd_numlocks += globaldatalock[i].get_numlocks();
+            gd_holdersperlock = (double)gd_numholders/(double)gd_numlocks;
+            if(globaldatalock[i].get_maxlocktime() > gd_maxlocktime){
+                gd_maxlocktime = globaldatalock[i].get_maxlocktime();
+            }
+            if(globaldatalock[i].get_maxunlocktime() > gd_maxunlocktime){
+                gd_maxunlocktime = globaldatalock[i].get_maxunlocktime();
+            }
 
+            /* Sharerlock stats */
             stats.sharerlocktime += sharerlock[i].get_waittime();
             stats.sharerlockflushtime += sharerlock[i].get_flushtime();
             if(sharerlock[i].get_maxtime() > stats.sharerlockmaxtime){
                 stats.sharerlockmaxtime = sharerlock[i].get_maxtime();
+            }
+            sh_numholders += sharerlock[i].get_numholders();
+            sh_numlocks += sharerlock[i].get_numlocks();
+            sh_holdersperlock = sh_numholders/sh_numlocks;
+            if(sharerlock[i].get_maxlocktime() > sh_maxlocktime){
+                sh_maxlocktime = sharerlock[i].get_maxlocktime();
+            }
+            if(sharerlock[i].get_maxunlocktime() > sh_maxunlocktime){
+                sh_maxunlocktime = sharerlock[i].get_maxunlocktime();
             }
         }
         for(int i=0; i<cachesize; i++){
@@ -1368,9 +1398,10 @@ void printStatistics(){
 		stats.storetime, stats.loadtime, stats.flushtime, stats.writebacktime);
 	printf("# Barriertime : %lf, selfinvtime %lf\n",stats.barriertime, stats.selfinvtime);
 	printf("stores:%lu, loads:%lu, barriers:%lu\n",stats.stores,stats.loads,stats.barriers);
+        printf("Locks:%d\n",stats.locks);
 	printf("locktime: cache:%lf, globaldata:%lf, sharer:%lf\n",stats.cachelocktime,stats.globaldatalocktime,stats.sharerlocktime);
-	printf("lock detail: globaldata:(max:%lf flush:%lf), sharer:(max:%lf, flush:%lf)\n",stats.globaldatalockmaxtime, stats.globaldatalockflushtime, stats.sharerlockmaxtime, stats.sharerlockflushtime);
-	printf("Locks:%d\n",stats.locks);
+	printf("gd: maxtime:%lf flush:%lf avgload:%lf maxlocktime: %lf maxunlocktime :%lf\n",stats.globaldatalockmaxtime, stats.globaldatalockflushtime, gd_holdersperlock, gd_maxlocktime, gd_maxunlocktime);
+	printf("sh: maxtime:%lf flush:%lf avgload:%lf maxlocktime: %lf maxunlocktime :%lf\n",stats.sharerlockmaxtime, stats.sharerlockflushtime, sh_holdersperlock, sh_maxlocktime, sh_maxunlocktime);
 	printf("########################################################\n");
 	printf("\n\n");
 }

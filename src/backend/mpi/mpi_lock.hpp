@@ -14,14 +14,14 @@
 class mpi_lock {
 private:
     /** @brief atomic lock flags */
-    std::atomic<int> cnt, m_hop, m_act, cnt_flush;
+    std::atomic<int> cnt, m_hop, m_act, cnt_flush, holders;
     
     /** @brief flag for concurrent lock and unlock calls */
     std::atomic_flag unlockflag;
 
     /** @brief Timekeeping */
-    std::atomic<double> waittime, flushtime;
-    double locktime, unlocktime, maxtime;
+    std::atomic<double> waittime, flushtime, maxlocktime, maxunlocktime;
+    double locktime, unlocktime, maxtime, numlocks, numholders;
 
 public:
     /**
@@ -37,6 +37,9 @@ public:
         locktime(0),
         unlocktime(0),
         maxtime(0),
+        maxlocktime(0),
+        maxunlocktime(0),
+        holders(0),
         unlockflag(ATOMIC_FLAG_INIT)
     { };
 
@@ -84,6 +87,31 @@ public:
      */
     double get_maxtime();
 
+    /** 
+     * @brief  get timekeeping statistics
+     * @return the maximum time spent locking a window
+     */
+    double get_maxlocktime();
+
+    /** 
+     * @brief  get timekeeping statistics
+     * @return the maximum time spent unlocking a window
+     */
+    double get_maxunlocktime();
+
+
+    /** 
+     * @brief  get lock statistics
+     * @return the total amount of times a lock was taken
+     */
+    int get_numholders();
+
+    /** 
+     * @brief  get lock statistics
+     * @return the total amount of MPI locks taken
+     */
+    int get_numlocks();
+    
     /**
      * @brief reset the timekeeping statistics
      */
