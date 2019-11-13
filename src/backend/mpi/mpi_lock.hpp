@@ -13,35 +13,37 @@
 /** @brief Provides MPI RMA epoch locking */
 class mpi_lock {
 private:
+    /* @brief atomic spinlock */
+    pthread_spinlock_t globallock;
+
     /** @brief atomic lock flags */
-    std::atomic<int> cnt, m_hop, m_act, cnt_flush, holders;
+    std::atomic<int> cnt, m_hop, m_act, cnt_flush;
     
     /** @brief flag for concurrent lock and unlock calls */
     std::atomic_flag unlockflag;
 
-    /** @brief Timekeeping */
-    std::atomic<double> waittime, flushtime, maxlocktime, maxunlocktime;
-    double locktime, unlocktime, maxtime, numlocks, numholders;
+    /** @brief Timekeeping for lock */
+    std::atomic<double> locktime;
+    double maxlocktime, mpilocktime;
+    std::atomic<int> numlockslocal;
+    int numlocksremote;
+
+    /** @brief Timekeeping for unlock */
+    std::atomic<double> unlocktime, mpiflushtime;
+    double maxunlocktime, mpiunlocktime;
+
+    /** @brief General statistics */
+    double holdtime, maxholdtime, flagtime, acquiretime, releasetime;
 
 public:
     /**
      * @brief mpi_lock constructor 
      */
-    mpi_lock()
-        : cnt(0),
-        m_hop(0),
-        m_act(0),
-        cnt_flush(0),
-        waittime(0),
-        flushtime(0),
-        locktime(0),
-        unlocktime(0),
-        maxtime(0),
-        maxlocktime(0),
-        maxunlocktime(0),
-        holders(0),
-        unlockflag(ATOMIC_FLAG_INIT)
-    { };
+    mpi_lock();
+
+    /*********************************************************
+     * LOCK ACQUISITION AND RELEASE
+     * ******************************************************/
 
     /** 
      * @brief acquire mpi_lock
@@ -69,24 +71,23 @@ public:
     bool trylock(int lock_type, int target, MPI_Win window);
 
 
+
+    /*********************************************************
+     * LOCK STATISTICS
+     * ******************************************************/
+    
     /** 
      * @brief  get timekeeping statistics
      * @return the total time spent for all threads in the mpi_lock
      */
-    double get_waittime();
-
-    /** 
-    * @brief  get timekeeping statistics
-    * @return the total time spent flushing the MPI Windows
-    */
-    double get_flushtime();
-
+    double get_locktime();
+    
     /** 
      * @brief  get timekeeping statistics
-     * @return the maximum time spent holding an MPI window locked
+     * @return the maximum time spent locking a window
      */
-    double get_maxtime();
-
+    double get_avglocktime();
+    
     /** 
      * @brief  get timekeeping statistics
      * @return the maximum time spent locking a window
@@ -95,23 +96,85 @@ public:
 
     /** 
      * @brief  get timekeeping statistics
+     * @return the total time spent for all threads waiting for MPI_Win_lock
+     */
+    double get_mpilocktime();
+    
+    /** 
+     * @brief  get timekeeping statistics
+     * @return the total number of locks taken
+     */
+    int get_numlocks();
+
+    /*********************************************************
+     * UNLOCK STATISTICS
+     * ******************************************************/
+    
+    /** 
+     * @brief  get timekeeping statistics
+     * @return the total time spent unlocking the lock
+     */
+    double get_unlocktime();
+    
+    /** 
+     * @brief  get timekeeping statistics
+     * @return the average time spent unlocking the lock
+     */
+    double get_avgunlocktime();
+
+    /** 
+     * @brief  get timekeeping statistics
      * @return the maximum time spent unlocking a window
      */
     double get_maxunlocktime();
+    
+    /** 
+    * @brief  get timekeeping statistics
+    * @return the total time spent unlocking the MPI Windows
+    */
+    double get_mpiunlocktime();
+    
+    /** 
+    * @brief  get timekeeping statistics
+    * @return the total time spent flushing the MPI Windows
+    */
+    double get_mpiflushtime();
 
 
+    /*********************************************************
+     * GENERAL STATISTICS
+     * ******************************************************/
+
+    /** 
+     * @brief  get lock statistics
+     * @return the total amount of time holding an mpi_lock
+     */
+    double get_holdtime();
+    
+    /** 
+     * @brief  get lock statistics
+     * @return the total amount of time holding an mpi_lock
+     */
+    double get_avgholdtime();
+    
+    /** 
+     * @brief  get lock statistics
+     * @return the total amount of time holding an mpi_lock
+     */
+    double get_maxholdtime();
+    
     /** 
      * @brief  get lock statistics
      * @return the total amount of times a lock was taken
      */
-    int get_numholders();
-
+    double get_avgload();
+    
     /** 
      * @brief  get lock statistics
-     * @return the total amount of MPI locks taken
+     * @return the total time spent waiting for the unlockflag
      */
-    int get_numlocks();
-    
+    double get_flagtime();
+
     /**
      * @brief reset the timekeeping statistics
      */

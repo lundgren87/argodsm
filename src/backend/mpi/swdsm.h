@@ -106,18 +106,6 @@ typedef struct argo_statisticsStruct
 		/** @brief Number of locks */
 		int locks;
                 /** @brief Time waiting for lock */
-                double globaldatalocktime;
-                /** @brief Max time holding a MPI Window */
-                double globaldatalockmaxtime;
-                /** @brief Total time performing MPI_Win_flush */
-                double globaldatalockflushtime;
-                /** @brief Time waiting for lock */
-                double sharerlocktime;
-                /** @brief Max time holding a MPI Window */
-                double sharerlockmaxtime;
-                /** @brief Total time performing MPI_Win_flush */
-                double sharerlockflushtime;
-                /** @brief Time waiting for lock */
                 double cachelocktime;
 } argo_statistics;
 
@@ -125,7 +113,7 @@ typedef struct argo_statisticsStruct
  * @brief Struct containing cache mutex and padding to 64b.
  * @todo  Move to own class or better place?
  * */
-struct cache_lock_struct {
+struct cache_lock {
     /** @brief Mutex protecting one cache index */
     pthread_spinlock_t structlock;
 
@@ -135,11 +123,13 @@ struct cache_lock_struct {
     /** @brief Char array padding to 64b to minimize false sharing. */
     char padding[64-sizeof(structlock)-sizeof(waittime)];
 
-    /** @brief initializes the lock */
-    int init(){
-        waittime = 0;
-        return pthread_spin_init(&structlock, PTHREAD_PROCESS_PRIVATE);
-    }
+    /** @brief Constructor */
+    cache_lock()
+        : waittime(0)
+    {
+        pthread_spin_init(&structlock, PTHREAD_PROCESS_PRIVATE);
+    };
+        
     /** @brief acquire lock */
     int lock(){
         double start = MPI_Wtime();
@@ -390,6 +380,8 @@ unsigned long getOffset(unsigned long addr);
  * @return index for sharer vector for the page
  */
 inline unsigned long get_classification_index(uint64_t addr);
+
+inline unsigned long get_sharer_index(unsigned long classidx);
 
 #endif /* argo_swdsm_h */
 
