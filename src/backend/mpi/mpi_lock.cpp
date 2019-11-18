@@ -7,7 +7,7 @@
 
 #include "mpi_lock.hpp"
 
-#define GLOBALLOCK 0
+#define GLOBALLOCK 1
 
 
 /**
@@ -47,27 +47,28 @@ mpi_lock::mpi_lock()
  */
 void mpi_lock::lock(int lock_type, int target, MPI_Win window){
     int cur;
+    double g, mpi_start, mpi_end, flagstart, flagend, lock_start, lock_end;
 
-    double lock_start = MPI_Wtime();
+    lock_start = MPI_Wtime();
 
     if(GLOBALLOCK){
         // Take global spinlock
         pthread_spin_lock(&globallock);
         // Lock MPI
-        double mpi_start = MPI_Wtime();
+        mpi_start = MPI_Wtime();
         acquiretime = mpi_start;
         MPI_Win_lock(lock_type, target, 0, window);
-        double mpi_end = MPI_Wtime();
+        mpi_end = MPI_Wtime();
         mpilocktime += (mpi_end-mpi_start);
         numlocksremote++;
     }else{
         while(1){
-            double flagstart = MPI_Wtime();
+            flagstart = MPI_Wtime();
             // TODO: find better solution of protecting cnt&m_hop together?
             while(unlockflag.test_and_set(std::memory_order_acquire));
             /** Add self to current lockholders */
             cur = cnt.fetch_add(1);
-            double flagend = MPI_Wtime();
+            flagend = MPI_Wtime();
             flagtime += flagend-flagstart;
             unlockflag.clear(std::memory_order_release);
             /** If the lock is not held by anyone, take lock and lock MPI */
@@ -77,10 +78,10 @@ void mpi_lock::lock(int lock_type, int target, MPI_Win window){
                 /* Acquire m_act with current lock type */
                 if(!m_act.exchange(lock_type)){
                     /* Time and acquire MPI lock */
-                    double mpi_start = MPI_Wtime();
+                    mpi_start = MPI_Wtime();
                     acquiretime = mpi_start;
                     MPI_Win_lock(lock_type, target, 0, window);
-                    double mpi_end = MPI_Wtime();
+                    mpi_end = MPI_Wtime();
                     mpilocktime += (mpi_end-mpi_start);
 
                     /* Indicate that lock is held */
@@ -109,13 +110,13 @@ void mpi_lock::lock(int lock_type, int target, MPI_Win window){
             }
         }
     }
-    double lock_end = MPI_Wtime();
+    lock_end = MPI_Wtime();
     /* Update max time spent in lock (NOT THREAD SAFE)*/
     if((lock_end-lock_start) > maxlocktime){
         maxlocktime = lock_end-lock_start;
     }
     /* Update time spent in lock atomically */
-    for (double g = locktime.load(std::memory_order_acquire); !locktime.compare_exchange_strong(g, (g+lock_end-lock_start)););
+    for (g = locktime.load(std::memory_order_acquire); !locktime.compare_exchange_strong(g, (g+lock_end-lock_start)););
 }
 
 /** 
@@ -126,13 +127,14 @@ void mpi_lock::lock(int lock_type, int target, MPI_Win window){
  */
 void mpi_lock::unlock(int target, MPI_Win window, bool flush){
     int cur;
+    double g, unlock_start, unlock_end, mpi_start, mpi_end;
 
-    double unlock_start = MPI_Wtime();
+    unlock_start = MPI_Wtime();
 
     if(GLOBALLOCK){
-        double mpi_start = MPI_Wtime();
+        mpi_start = MPI_Wtime();
         MPI_Win_unlock(target, window);
-        double mpi_end = MPI_Wtime();
+        mpi_end = MPI_Wtime();
         mpiunlocktime += mpi_end-mpi_start;
         releasetime = mpi_end;
         holdtime += (releasetime-acquiretime);
@@ -158,9 +160,9 @@ void mpi_lock::unlock(int target, MPI_Win window, bool flush){
             /* Wait for flushing to finish */
             while(cnt_flush);
             /* Time and unlock the MPI window on the target process */
-            double mpi_start = MPI_Wtime();
+            mpi_start = MPI_Wtime();
             MPI_Win_unlock(target, window);
-            double mpi_end = MPI_Wtime();
+            mpi_end = MPI_Wtime();
             /* Update timers */
             mpiunlocktime += mpi_end-mpi_start;
             releasetime = mpi_end;
@@ -174,29 +176,29 @@ void mpi_lock::unlock(int target, MPI_Win window, bool flush){
         } /* If we are not the last lock holder, just flush the window buffer */
         else if(flush){
             unlockflag.clear(std::memory_order_release);
-            double mpi_start = MPI_Wtime();
+            mpi_start = MPI_Wtime();
             if(m_act == MPI_LOCK_SHARED){
                 MPI_Win_flush_local(target, window);
             }else{
                 // TODO: Only tested to work with impi 2019.5, need to find solution
                 MPI_Win_flush(target, window);
             }
-            double mpi_end = MPI_Wtime();
+            mpi_end = MPI_Wtime();
             cnt_flush--;
             /* Update flushtime */
-            for (double g = mpiflushtime.load(std::memory_order_acquire); !mpiflushtime.compare_exchange_strong(g, (g+mpi_end-mpi_start)););
+            for (g = mpiflushtime.load(std::memory_order_acquire); !mpiflushtime.compare_exchange_strong(g, (g+mpi_end-mpi_start)););
         } /* Skip flush if this lock did not write/read */
         else{
             unlockflag.clear(std::memory_order_release);
         }
     }
-    double unlock_end = MPI_Wtime();
+    unlock_end = MPI_Wtime();
     /* Update max time spent in unlock (NOT THREAD SAFE)*/
     if((unlock_end-unlock_start) > maxunlocktime){
         maxunlocktime = unlock_end-unlock_start;
     }
     /* Update time spent in lock atomically */
-    for (double g = unlocktime.load(std::memory_order_acquire); !unlocktime.compare_exchange_strong(g, (g+unlock_end-unlock_start)););
+    for (g = unlocktime.load(std::memory_order_acquire); !unlocktime.compare_exchange_strong(g, (g+unlock_end-unlock_start)););
 }
 
 
