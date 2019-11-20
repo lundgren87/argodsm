@@ -1073,38 +1073,26 @@ void argo_initialize(std::size_t argo_size, std::size_t cache_size){
 	globalDataWindow = (MPI_Win**)malloc(sizeof(MPI_Win*)*numtasks);
 	sharerWindow = (MPI_Win**)malloc(sizeof(MPI_Win*)*numtasks);
         for(i = 0; i < numtasks; i++){
-            globalDataWindow[i] = (MPI_Win*)malloc(sizeof(MPI_Win)*(64/sizeof(MPI_Win)));
-            sharerWindow[i] = (MPI_Win*)malloc(sizeof(MPI_Win)*(64/sizeof(MPI_Win)));
+            globalDataWindow[i] = (MPI_Win*)malloc(sizeof(MPI_Win)*numtasks);
+            sharerWindow[i] = (MPI_Win*)malloc(sizeof(MPI_Win)*numtasks);
          }
 
+        /* TODO: Explore dynamically allocating more windows if needed */
 	for(i = 0; i < numtasks; i++){
-            for(j = 0; j < (64/sizeof(MPI_Win)); j++){
+            for(j = 0; j < numtasks; j++){
  		MPI_Win_create(globalData, size_of_chunk*sizeof(argo_byte), 1,
 									 MPI_INFO_NULL, MPI_COMM_WORLD, &globalDataWindow[i][j]);
-                //std::string wname = std::string("globalDataWindow[") + std::to_string(i) + std::string("]");
-                //MPI_Win_set_name(globalDataWindow[i][j], wname.c_str());
             }
 	}
 
-	/* TODO: split windows over globalSharers instead */
+        /* TODO: Explore dynamically allocating more windows if needed */
         for(i = 0; i < numtasks; i++){
-            for(j = 0; j < (64/sizeof(MPI_Win)); j++){
+            for(j = 0; j < numtasks; j++){
                 MPI_Win_create(globalSharers, gwritersize, sizeof(unsigned long),
 								    MPI_INFO_NULL, MPI_COMM_WORLD, &sharerWindow[i][j]);
-                //std::string wname = std::string("sharerWindow[") + std::to_string(i) + std::string("]");
-                //MPI_Win_set_name(sharerWindow[i][j], wname.c_str());
             }
         }
         MPI_Win_create(lockbuffer, pagesize, 1, MPI_INFO_NULL, MPI_COMM_WORLD, &lockWindow);
-
-        for(i = 0; i < numtasks; i++){
-            for(j = 0; j < (64/sizeof(MPI_Win)); j++){
-                MPI_Win_lock(MPI_LOCK_EXCLUSIVE, 0, 0, sharerWindow[i][j]);
-                MPI_Win_unlock(0, sharerWindow[i][j]);
-                MPI_Win_lock(MPI_LOCK_EXCLUSIVE, 0, 0, globalDataWindow[i][j]);
-                MPI_Win_unlock(0, globalDataWindow[i][j]);
-            }
-        }
 
 	memset(pagecopy, 0, cachesize*pagesize);
 	memset(touchedcache, 0, cachesize);
@@ -1141,7 +1129,7 @@ void argo_finalize(){
 
 	MPI_Barrier(MPI_COMM_WORLD);
 	for(i=0; i<numtasks; i++){
-	    for(j=0; j<(64/sizeof(MPI_Win)); j++){
+	    for(j=0; j<numtasks; j++){
 	        MPI_Win_free(&globalDataWindow[i][j]);
 	        MPI_Win_free(&sharerWindow[i][j]);
             }
@@ -1358,7 +1346,6 @@ void printStatistics(){
             /* Globaldatalock stats */
             gd_locktime += globaldatalock[i].get_locktime();
             gd_avglocktime += globaldatalock[i].get_avglocktime();
-            if(i == numtasks-1) gd_avglocktime /= (double)numtasks;
             if(globaldatalock[i].get_maxlocktime() > gd_maxlocktime){
                 gd_maxlocktime = globaldatalock[i].get_maxlocktime();
             }
@@ -1366,7 +1353,6 @@ void printStatistics(){
 
             gd_unlocktime += globaldatalock[i].get_unlocktime();
             gd_avgunlocktime += globaldatalock[i].get_avgunlocktime();
-            if(i == numtasks-1) gd_avgunlocktime /= (double)numtasks;
             if(globaldatalock[i].get_maxunlocktime() > gd_maxunlocktime){
                 gd_maxunlocktime = globaldatalock[i].get_maxunlocktime();
             }
@@ -1375,13 +1361,11 @@ void printStatistics(){
 
             gd_holdtime += globaldatalock[i].get_holdtime();
             gd_avgholdtime += globaldatalock[i].get_avgholdtime();
-            if(i == numtasks-1) gd_avgholdtime /= (double)numtasks;
             if(globaldatalock[i].get_maxholdtime() > gd_maxholdtime){
                 gd_maxholdtime = globaldatalock[i].get_maxholdtime();
             }
             gd_flagtime += globaldatalock[i].get_flagtime();
             gd_avgload += globaldatalock[i].get_avgload();
-            if(i == numtasks-1) gd_avgload /= (double)numtasks;
             gd_numlocks += globaldatalock[i].get_numlocks();
 
             /* Sharerlock stats */
@@ -1410,11 +1394,18 @@ void printStatistics(){
                 sh_avgload += sharerlock[i][j].get_avgload();
                 sh_numlocks += sharerlock[i][j].get_numlocks();
             }
-            if(i == numtasks-1) sh_avgunlocktime /= (double)(numtasks*numtasks);
-            if(i == numtasks-1) sh_avglocktime /= (double)(numtasks*numtasks);
-            if(i == numtasks-1) sh_avgholdtime /= (double)(numtasks*numtasks);
-            if(i == numtasks-1) sh_avgload /= (double)(numtasks*numtasks);
         }
+        /* Correct average statistics */
+        gd_avglocktime /= (double)numtasks;
+        gd_avgunlocktime /= (double)numtasks;
+        gd_avgholdtime /= (double)numtasks;
+        gd_avgload /= (double)numtasks;
+        sh_avgunlocktime /= (double)(numtasks*numtasks);
+        sh_avglocktime /= (double)(numtasks*numtasks);
+        sh_avgholdtime /= (double)(numtasks*numtasks);
+        sh_avgload /= (double)(numtasks*numtasks);
+        
+        /* Collect cachelock statistics */
         for(int i=0; i<cachesize; i++){
             stats.cachelocktime += cachelock[i].waittime;
         }
@@ -1430,7 +1421,7 @@ void printStatistics(){
 	printf("# Barriertime : %lf, selfinvtime %lf\n",stats.barriertime, stats.selfinvtime);
 	printf("stores:%lu, loads:%lu, barriers:%lu\n",stats.stores,stats.loads,stats.barriers);
         printf("Locks:%d\n",stats.locks);
-	printf("# Locktime: cache:%lf, globaldata:%lf, sharer:%lf\n",stats.cachelocktime,gd_locktime,sh_locktime);
+	printf("# Cachelock: \nlocktime:%lf\n",stats.cachelocktime);
 	printf("# Globaldatalock: \n"
                 "locktime:%.05fs \tavg:%.05fs \tmax:%.05fs \tmpi:%.05fs \tlocks:%d\n"
                 "unlocktime:%.05fs \tavg:%.05fs \tmax:%.05fs \tmpi:%.05fs \tflush:%.05fs\n"
@@ -1457,7 +1448,6 @@ inline unsigned long get_classification_index(uint64_t addr){
 }
 
 inline unsigned long get_sharer_index(unsigned long classidx){
-    //return (unsigned long) std::floor((double)classidx/((double)classificationSize/(double)numtasks));
     assert(!(classidx%2));
     return (unsigned long) (classidx/2)%numtasks;
 }

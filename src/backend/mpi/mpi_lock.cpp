@@ -211,25 +211,35 @@ void mpi_lock::unlock(int target, MPI_Win window, bool flush){
  */
 bool mpi_lock::trylock(int lock_type, int target, MPI_Win window){
     int cur;
-
-    while(unlockflag.test_and_set(std::memory_order_acquire));
-    cur = cnt.fetch_add(1);
-    unlockflag.clear(std::memory_order_release);
-    if(!cur){
-        while(m_act);
-        int expected=0;
-        if(!m_act.compare_exchange_weak(expected, lock_type)){
-            locktime = MPI_Wtime();
+    
+    /* TODO: Not really fully tested and no stat tracking */
+    if(GLOBALLOCK){
+        // Try to take global spinlock
+        if(!pthread_spin_trylock(&globallock)){
+            // Lock MPI
             MPI_Win_lock(lock_type, target, 0, window);
-            m_hop = 1;
-        }else{
-            printf("Fatal error during lock.\n");
-            EXIT_FAILURE;
+            return true;
         }
-    }else if(m_hop && m_act==lock_type){
-        return true; 
     }else{
-        unlock(target, window, false);
+        while(unlockflag.test_and_set(std::memory_order_acquire));
+        cur = cnt.fetch_add(1);
+        unlockflag.clear(std::memory_order_release);
+        if(!cur){
+            while(m_act);
+            int expected=0;
+            if(!m_act.compare_exchange_weak(expected, lock_type)){
+                locktime = MPI_Wtime();
+                MPI_Win_lock(lock_type, target, 0, window);
+                m_hop = 1;
+            }else{
+                printf("Fatal error during lock.\n");
+                EXIT_FAILURE;
+            }
+        }else if(m_hop && m_act==lock_type){
+            return true; 
+        }else{
+            unlock(target, window, false);
+        }
     }
     return false;
 }
