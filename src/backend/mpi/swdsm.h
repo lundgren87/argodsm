@@ -383,5 +383,7 @@ inline unsigned long get_classification_index(uint64_t addr);
 
 inline unsigned long get_sharer_index(unsigned long classidx);
 
+inline unsigned long get_globaldata_index(unsigned long cacheindex);
+
 #endif /* argo_swdsm_h */
 

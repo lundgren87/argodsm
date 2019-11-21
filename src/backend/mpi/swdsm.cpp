@@ -92,11 +92,11 @@ int rank;
 /** @brief rank/process ID in the MPI/ArgoDSM runtime*/
 int workrank;
 /** @brief tracking which windows are used for reading and writing global address space*/
-char * barwindowsused;
+char **barwindowsused;
 /** @brief Protects sharerwindow writes on a node. */
 mpi_lock **sharerlock;
 /** @brief Protects globaldatawindow writes on a node. */
-mpi_lock *globaldatalock;
+mpi_lock **globaldatalock;
 
 /*Loading and Prefetching*/
 /**
@@ -186,10 +186,12 @@ void flushWriteBuffer(void){
   }
 
 	for(i = 0; i < (unsigned long)numtasks; i++){
-		if(barwindowsused[i] == 1){
-			barwindowsused[i] = 0;
-                        globaldatalock[i].unlock(i, globalDataWindow[i][0]);
-		}
+                for(j = 0; j < (unsigned long)numtasks; j++){
+                        if(barwindowsused[i][j] == 1){
+                                barwindowsused[i][j] = 0;
+                                globaldatalock[i][j].unlock(i, globalDataWindow[i][j]);
+                        }
+                }
 	}
 
 	writebufferstart = 0;
@@ -541,7 +543,7 @@ unsigned long getOffset(unsigned long addr){
 }
 
 void write_back_writebuffer() {
-	unsigned long i;
+	unsigned long i, j;
 	unsigned long oldstart;
 	unsigned long idx,tag;
 
@@ -558,20 +560,21 @@ void write_back_writebuffer() {
 		}
 	}
 	for(i = 0; i < (unsigned long)numtasks; i++){
-		if(barwindowsused[i] == 1){
-			barwindowsused[i] = 0;
-                        globaldatalock[i].unlock(i, globalDataWindow[i][0]);
-		}
+                for(j = 0; j < (unsigned long)numtasks; j++){
+                        if(barwindowsused[i][j] == 1){
+                                barwindowsused[i][j] = 0;
+                                globaldatalock[i][j].unlock(i, globalDataWindow[i][j]);
+                        }
+                }
 	}
 	writebufferstart = (writebufferstart+1)%writebuffersize;
 }
 
 void load_cache_entry(unsigned long loadtag, unsigned long loadline) {
-	int i;
+	int i, j;
 	unsigned long homenode;
 	unsigned long id = 1 << getID();
 	unsigned long invid = ~id;
-
 	if(loadtag>=size_of_all){//Trying to access/prefetch out of memory
 		return;
 	}
@@ -624,10 +627,12 @@ void load_cache_entry(unsigned long loadtag, unsigned long loadline) {
 				}
 
 				for(i = 0; i < numtasks; i++){
-					if(barwindowsused[i] == 1){
-						barwindowsused[i] = 0;
-                                                globaldatalock[i].unlock(i, globalDataWindow[i][0]);
-					}
+                                        for(j = 0; j < (unsigned long)numtasks; j++){
+                                                if(barwindowsused[i][j] == 1){
+                                                        barwindowsused[i][j] = 0;
+                                                        globaldatalock[i][j].unlock(i, globalDataWindow[i][j]);
+                                                }
+                                        }
 				}
 
 				cacheControl[startidx].state = INVALID;
@@ -647,6 +652,7 @@ void load_cache_entry(unsigned long loadtag, unsigned long loadline) {
 	unsigned long classidx = get_classification_index(lineAddr); 
         //unsigned long sharerindex = 0;
         unsigned long sharerindex = get_sharer_index(classidx);
+        unsigned long globaldataindex = get_globaldata_index(cacheIndex);
 	
         unsigned long tempsharer = 0;
 	unsigned long tempwriter = 0;
@@ -688,13 +694,13 @@ void load_cache_entry(unsigned long loadtag, unsigned long loadline) {
 
 	}
 
-        globaldatalock[homenode].lock(MPI_LOCK_SHARED, homenode, globalDataWindow[homenode][0]);
+        globaldatalock[homenode][globaldataindex].lock(MPI_LOCK_SHARED, homenode, globalDataWindow[homenode][globaldataindex]);
 	MPI_Get(&cacheData[startidx*pagesize],
 					1,
 					cacheblock,
 					homenode,
-					offset, 1,cacheblock,globalDataWindow[homenode][0]);
-        globaldatalock[homenode].unlock(homenode, globalDataWindow[homenode][0]);
+					offset, 1,cacheblock,globalDataWindow[homenode][globaldataindex]);
+        globaldatalock[homenode][globaldataindex].unlock(homenode, globalDataWindow[homenode][globaldataindex]);
 
 	if(cacheControl[startidx].tag == GLOBAL_NULL){
 		vm::map_memory(lineptr, blocksize, pagesize*startidx, PROT_READ);
@@ -710,7 +716,7 @@ void load_cache_entry(unsigned long loadtag, unsigned long loadline) {
 }
 
 void prefetch_cache_entry(unsigned long prefetchtag, unsigned long prefetchline) {
-	int i;
+	int i, j;
 	unsigned long homenode;
 	unsigned long id = 1 << getID();
 	unsigned long invid = ~id;
@@ -765,10 +771,12 @@ void prefetch_cache_entry(unsigned long prefetchtag, unsigned long prefetchline)
 				}
 
 				for(i = 0; i < numtasks; i++){
-					if(barwindowsused[i] == 1){
-						barwindowsused[i] = 0;
-                                                globaldatalock[i].unlock(i, globalDataWindow[i][0]);
-					}
+                                        for(j = 0; j < (unsigned long)numtasks; j++){
+                                                if(barwindowsused[i][j] == 1){
+                                                        barwindowsused[i][j] = 0;
+                                                        globaldatalock[i][j].unlock(i, globalDataWindow[i][j]);
+                                                }
+                                        }
 				}
 
 
@@ -789,6 +797,7 @@ void prefetch_cache_entry(unsigned long prefetchtag, unsigned long prefetchline)
 	unsigned long classidx = get_classification_index(lineAddr);
         //unsigned long sharerindex = 0;
         unsigned long sharerindex = get_sharer_index(classidx);
+        unsigned long globaldataindex = get_globaldata_index(cacheIndex);
 
         unsigned long tempsharer = 0;
 	unsigned long tempwriter = 0;
@@ -829,10 +838,10 @@ void prefetch_cache_entry(unsigned long prefetchtag, unsigned long prefetchline)
 
 	}
 
-        globaldatalock[homenode].lock(MPI_LOCK_SHARED, homenode, globalDataWindow[homenode][0]);
+        globaldatalock[homenode][globaldataindex].lock(MPI_LOCK_SHARED, homenode, globalDataWindow[homenode][globaldataindex]);
 	MPI_Get(&cacheData[startidx*pagesize], 1, cacheblock, homenode,
-		offset, 1, cacheblock, globalDataWindow[homenode][0]);
-        globaldatalock[homenode].unlock(homenode, globalDataWindow[homenode][0]);
+		offset, 1, cacheblock, globalDataWindow[homenode][globaldataindex]);
+        globaldatalock[homenode][globaldataindex].unlock(homenode, globalDataWindow[homenode][globaldataindex]);
 
 
 	if(cacheControl[startidx].tag == GLOBAL_NULL){
@@ -865,7 +874,6 @@ void initmpi(){
 		MPI_Abort(MPI_COMM_WORLD, ret);
 		exit(EXIT_FAILURE);
 	}
-
 	MPI_Comm_size(MPI_COMM_WORLD,&numtasks);
 	MPI_Comm_rank(MPI_COMM_WORLD,&rank);
 	init_mpi_struct();
@@ -966,7 +974,10 @@ void argo_initialize(std::size_t argo_size, std::size_t cache_size){
         }
 
         /** Create globaldatalock */
-        globaldatalock = new mpi_lock[numtasks];
+        globaldatalock = new mpi_lock*[numtasks];
+        for(i = 0; i < numtasks; i++){
+            globaldatalock[i] = new mpi_lock[numtasks];
+        }
 	
         classificationSize = 2*cachesize; // Could be smaller ?
 	writebuffersize = WRITE_BUFFER_PAGES/CACHELINE;
@@ -978,9 +989,12 @@ void argo_initialize(std::size_t argo_size, std::size_t cache_size){
 	writebufferstart = 0;
 	writebufferend = 0;
 
-	barwindowsused = (char *)malloc(numtasks*sizeof(char));
+	barwindowsused = (char **)malloc(numtasks*sizeof(char*));
 	for(i = 0; i < numtasks; i++){
-		barwindowsused[i] = 0;
+                barwindowsused[i] = (char*)malloc(numtasks*sizeof(char));
+		for(j = 0; j < numtasks; j++){
+                    barwindowsused[i][j] = 0;
+                }
 	}
 
 	int *workranks = (int *) malloc(sizeof(int)*numtasks);
@@ -1280,9 +1294,9 @@ void clearStatistics(){
         stats.cachelocktime = 0;
 
         for(int i=0; i<numtasks; i++){
-            globaldatalock[i].reset_stats();
             for(int j=0; j<numtasks; j++){
                 sharerlock[i][j].reset_stats();
+                globaldatalock[i][j].reset_stats();
             }
         }
 }
@@ -1292,14 +1306,15 @@ void storepageDIFF(unsigned long index, unsigned long addr){
 	int cnt = 0;
 	unsigned long homenode = getHomenode(addr);
 	unsigned long offset = getOffset(addr);
-
+        unsigned long globaldataindex = get_globaldata_index(index);
+        
 	char * copy = (char *)(pagecopy + index*pagesize);
 	char * real = (char *)startAddr+addr;
 	size_t drf_unit = sizeof(char);
 
-	if(barwindowsused[homenode] == 0){
-                globaldatalock[homenode].lock(MPI_LOCK_EXCLUSIVE, homenode, globalDataWindow[homenode][0]);
-		barwindowsused[homenode] = 1;
+	if(barwindowsused[homenode][globaldataindex] == 0){
+                globaldatalock[homenode][globaldataindex].lock(MPI_LOCK_EXCLUSIVE, homenode, globalDataWindow[homenode][globaldataindex]);
+		barwindowsused[homenode][globaldataindex] = 1;
 	}
 
 	for(i = 0; i < pagesize; i+=drf_unit){
@@ -1315,13 +1330,13 @@ void storepageDIFF(unsigned long index, unsigned long addr){
 		}
 		else{
 			if(cnt > 0){
-				MPI_Put(&real[i-cnt], cnt, MPI_BYTE, homenode, offset+(i-cnt), cnt, MPI_BYTE, globalDataWindow[homenode][0]);
+				MPI_Put(&real[i-cnt], cnt, MPI_BYTE, homenode, offset+(i-cnt), cnt, MPI_BYTE, globalDataWindow[homenode][globaldataindex]);
 				cnt = 0;
 			}
 		}
 	}
 	if(cnt > 0){
-		MPI_Put(&real[i-cnt], cnt, MPI_BYTE, homenode, offset+(i-cnt), cnt, MPI_BYTE, globalDataWindow[homenode][0]);
+		MPI_Put(&real[i-cnt], cnt, MPI_BYTE, homenode, offset+(i-cnt), cnt, MPI_BYTE, globalDataWindow[homenode][globaldataindex]);
 	}
 	stats.stores++;
 }
@@ -1343,33 +1358,33 @@ void printStatistics(){
 
         /* Collect statistics from locks */
         for(int i=0; i<numtasks; i++){
-            /* Globaldatalock stats */
-            gd_locktime += globaldatalock[i].get_locktime();
-            gd_avglocktime += globaldatalock[i].get_avglocktime();
-            if(globaldatalock[i].get_maxlocktime() > gd_maxlocktime){
-                gd_maxlocktime = globaldatalock[i].get_maxlocktime();
-            }
-            gd_mpilocktime += globaldatalock[i].get_mpilocktime();
-
-            gd_unlocktime += globaldatalock[i].get_unlocktime();
-            gd_avgunlocktime += globaldatalock[i].get_avgunlocktime();
-            if(globaldatalock[i].get_maxunlocktime() > gd_maxunlocktime){
-                gd_maxunlocktime = globaldatalock[i].get_maxunlocktime();
-            }
-            gd_mpiunlocktime += globaldatalock[i].get_mpiunlocktime();
-            gd_mpiflushtime += globaldatalock[i].get_mpiflushtime();
-
-            gd_holdtime += globaldatalock[i].get_holdtime();
-            gd_avgholdtime += globaldatalock[i].get_avgholdtime();
-            if(globaldatalock[i].get_maxholdtime() > gd_maxholdtime){
-                gd_maxholdtime = globaldatalock[i].get_maxholdtime();
-            }
-            gd_flagtime += globaldatalock[i].get_flagtime();
-            gd_avgload += globaldatalock[i].get_avgload();
-            gd_numlocks += globaldatalock[i].get_numlocks();
-
-            /* Sharerlock stats */
             for(int j=0; j<numtasks; j++){
+                /* Globaldatalock stats */
+                gd_locktime += globaldatalock[i][j].get_locktime();
+                gd_avglocktime += globaldatalock[i][j].get_avglocktime();
+                if(globaldatalock[i][j].get_maxlocktime() > gd_maxlocktime){
+                    gd_maxlocktime = globaldatalock[i][j].get_maxlocktime();
+                }
+                gd_mpilocktime += globaldatalock[i][j].get_mpilocktime();
+                
+                gd_unlocktime += globaldatalock[i][j].get_unlocktime();
+                gd_avgunlocktime += globaldatalock[i][j].get_avgunlocktime();
+                if(globaldatalock[i][j].get_maxunlocktime() > gd_maxunlocktime){
+                    gd_maxunlocktime = globaldatalock[i][j].get_maxunlocktime();
+                }
+                gd_mpiunlocktime += globaldatalock[i][j].get_mpiunlocktime();
+                gd_mpiflushtime += globaldatalock[i][j].get_mpiflushtime();
+
+                gd_holdtime += globaldatalock[i][j].get_holdtime();
+                gd_avgholdtime += globaldatalock[i][j].get_avgholdtime();
+                if(globaldatalock[i][j].get_maxholdtime() > gd_maxholdtime){
+                    gd_maxholdtime = globaldatalock[i][j].get_maxholdtime();
+                }
+                gd_flagtime += globaldatalock[i][j].get_flagtime();
+                gd_avgload += globaldatalock[i][j].get_avgload();
+                gd_numlocks += globaldatalock[i][j].get_numlocks();
+
+                /* Sharerlock stats */
                 sh_locktime += sharerlock[i][j].get_locktime();
                 sh_avglocktime += sharerlock[i][j].get_avglocktime();
                 if(sharerlock[i][j].get_maxlocktime() > sh_maxlocktime){
@@ -1448,6 +1463,9 @@ inline unsigned long get_classification_index(uint64_t addr){
 }
 
 inline unsigned long get_sharer_index(unsigned long classidx){
-    assert(!(classidx%2));
     return (unsigned long) (classidx/2)%numtasks;
+}
+
+inline unsigned long get_globaldata_index(unsigned long cacheindex){
+    return (unsigned long) cacheindex%numtasks;
 }
