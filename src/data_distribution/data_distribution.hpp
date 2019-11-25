@@ -131,10 +131,10 @@ namespace argo {
 				 * @return the computed home node
 				 */
 				static node_id_t homenode (char* const ptr) {
-					//return (ptr - start_address) / size_per_node;
-                                        static const unsigned long stripesize = 1 << 14;
-                                        unsigned long p = ptr - start_address;
-                                        return (p / stripesize) % nodes;
+					return (ptr - start_address) / size_per_node;
+                                        //static const unsigned long stripesize = 1 << 14;
+                                        //unsigned long p = ptr - start_address;
+                                        //return (p / stripesize) % nodes;
 				}
 
 				/**
@@ -143,10 +143,10 @@ namespace argo {
 				 * @return the computed offset
 				 */
 				static std::size_t local_offset (char* const ptr) {
-					//return (ptr - start_address) - homenode(ptr)*size_per_node;
-                                        static const unsigned long stripesize = 1 << 14;
-                                        unsigned long p = ptr - start_address;
-					return (p/stripesize)/nodes*stripesize + p%stripesize;
+					return (ptr - start_address) - homenode(ptr)*size_per_node;
+                                        //static const unsigned long stripesize = 1 << 14;
+                                        //unsigned long p = ptr - start_address;
+					//return (p/stripesize)/nodes*stripesize + p%stripesize;
 				}
 
 				/**
@@ -156,10 +156,9 @@ namespace argo {
 				 * @return a pointer to the requested address
 				 */
 				static char* get_ptr(const node_id_t homenode, const std::size_t offset) {
-					//return start_address + homenode*size_per_node + offset;
-				        return start_address + homenode*size_per_node + offset;
-					static const unsigned long stripesize = 1 << 14;
-					return start_address + (offset/stripesize)*nodes*stripesize + homenode*stripesize + offset%stripesize;
+					return start_address + homenode*size_per_node + offset;
+					//static const unsigned long stripesize = 1 << 14;
+					//return start_address + (offset/stripesize)*nodes*stripesize + homenode*stripesize + offset%stripesize;
                                 }
 		};
 		template<int i> int naive_data_distribution<i>::nodes;
