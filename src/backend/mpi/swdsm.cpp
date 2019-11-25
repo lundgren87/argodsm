@@ -31,6 +31,8 @@ pthread_mutex_t thread_setup_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t barriermutex = PTHREAD_MUTEX_INITIALIZER;
 /** @brief Thread local barrier used to first wait for all local threads in the global barrier*/
 pthread_barrier_t *threadbarrier;
+/** @brief Used to synchronize processes */
+int *data_barrier;
 
 /*Pagecache*/
 /** @brief  Size of the cache in number of pages*/
@@ -978,6 +980,10 @@ void argo_initialize(std::size_t argo_size, std::size_t cache_size){
         for(i = 0; i < numtasks; i++){
             globaldatalock[i] = new mpi_lock[numtasks];
         }
+
+        /** Create custom barrier data */
+        data_barrier = new int[numtasks];
+
 	
         classificationSize = 2*cachesize; // Could be smaller ?
 	writebuffersize = WRITE_BUFFER_PAGES/CACHELINE;
@@ -1217,7 +1223,9 @@ void swdsm_argo_barrier(int n){ //BARRIER
 		barrierlockholder = pthread_self();
 	        pthread_rwlock_wrlock(&synclock);
 		flushWriteBuffer();
-		MPI_Barrier(workcomm);
+		//MPI_Barrier(workcomm);
+                int data = 1;
+                MPI_Allgather(&data, 1, MPI_INT, data_barrier, 1, MPI_INT, workcomm);
 		self_invalidation();
 	        pthread_rwlock_unlock(&synclock);
 	}
