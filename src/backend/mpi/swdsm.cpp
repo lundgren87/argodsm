@@ -83,6 +83,8 @@ MPI_Win **sharerWindow;
 MPI_Win lockWindow;
 /** @brief MPI windows for reading and writing data in global address space */
 MPI_Win **globalDataWindow;
+/** @brief MPI windows for custom barrier implementation */
+MPI_Win barrierWindow;
 /** @brief MPI data structure for sending cache control data*/
 MPI_Datatype mpi_control_data;
 /** @brief MPI data structure for a block containing an ArgoDSM cacheline of pages */
@@ -149,6 +151,8 @@ static const unsigned int pagesize = 4096;
 unsigned long GLOBAL_NULL;
 /** @brief  Statistics */
 argo_statistics stats;
+/** @brief barrier stuff */
+int *barrierBuffer;
 
 namespace {
 	/** @brief constant for invalid ArgoDSM node */
@@ -1060,6 +1064,7 @@ void argo_initialize(std::size_t argo_size, std::size_t cache_size){
 	lockbuffer = static_cast<unsigned long*>(vm::allocate_mappable(pagesize, pagesize));
 	pagecopy = static_cast<char*>(vm::allocate_mappable(pagesize, cachesize*pagesize));
 	globalSharers = static_cast<unsigned long*>(vm::allocate_mappable(pagesize, gwritersize));
+	barrierBuffer = static_cast<int*>(vm::allocate_mappable(pagesize, sizeof(int)));
 
 	char processor_name[MPI_MAX_PROCESSOR_NAME];
 	int name_len;
@@ -1092,6 +1097,7 @@ void argo_initialize(std::size_t argo_size, std::size_t cache_size){
 	allocationOffset = (unsigned long *)calloc(1,sizeof(unsigned long));
 	globalDataWindow = (MPI_Win**)malloc(sizeof(MPI_Win*)*numtasks);
 	sharerWindow = (MPI_Win**)malloc(sizeof(MPI_Win*)*numtasks);
+	//barrierWindow = (MPI_Win)malloc(sizeof(MPI_Win));
         for(i = 0; i < numtasks; i++){
             globalDataWindow[i] = (MPI_Win*)malloc(sizeof(MPI_Win)*numtasks);
             sharerWindow[i] = (MPI_Win*)malloc(sizeof(MPI_Win)*numtasks);
@@ -1113,6 +1119,7 @@ void argo_initialize(std::size_t argo_size, std::size_t cache_size){
             }
         }
         MPI_Win_create(lockbuffer, pagesize, 1, MPI_INFO_NULL, MPI_COMM_WORLD, &lockWindow);
+        MPI_Win_create(barrierBuffer, 1*sizeof(int), sizeof(int), MPI_INFO_NULL, MPI_COMM_WORLD, &barrierWindow);
 
 	memset(pagecopy, 0, cachesize*pagesize);
 	memset(touchedcache, 0, cachesize);
@@ -1155,6 +1162,7 @@ void argo_finalize(){
             }
 	}
         MPI_Win_free(&lockWindow);
+        MPI_Win_free(&barrierWindow);
         MPI_Comm_free(&workcomm);
 	MPI_Finalize();
 	return;
@@ -1223,9 +1231,28 @@ void swdsm_argo_barrier(int n){ //BARRIER
 		barrierlockholder = pthread_self();
 	        pthread_rwlock_wrlock(&synclock);
 		flushWriteBuffer();
-		//MPI_Barrier(workcomm);
-                int data = 1;
-                MPI_Allgather(&data, 1, MPI_INT, data_barrier, 1, MPI_INT, workcomm);
+
+                // Custom barrier
+                int flag;
+                int val = 1;
+                int result = 0;
+                printf("[%d] Entering barrier.\n", workrank);
+                MPI_Win_lock(MPI_LOCK_EXCLUSIVE, 0, 0, barrierWindow);
+                printf("[%d] Adding self.\n", workrank);
+                MPI_Fetch_and_op(&val, &result, MPI_INT,
+                        0, 0, MPI_SUM, barrierWindow);
+                MPI_Win_unlock(0, barrierWindow);
+                result++;
+                printf("[%d] Waiting for rest. (%d)\n", workrank, result);
+                while(1){
+                    MPI_Iprobe(MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &flag, MPI_STATUS_IGNORE);
+                    if(result%numtasks == 0) break;
+                    MPI_Win_lock(MPI_LOCK_SHARED, 0, 0, barrierWindow);
+                    MPI_Get(&result, 1, MPI_INT, 0, 0, 1, MPI_INT, barrierWindow);
+                    MPI_Win_unlock(0, barrierWindow);
+                    pthread_yield();
+                }
+                printf("[%d] Barrier passed.\n", workrank);
 		self_invalidation();
 	        pthread_rwlock_unlock(&synclock);
 	}
