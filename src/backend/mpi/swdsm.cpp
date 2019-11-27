@@ -1484,9 +1484,25 @@ inline unsigned long get_classification_index(uint64_t addr){
 }
 
 inline unsigned long get_sharer_index(unsigned long classidx){
-    return (unsigned long) (classidx/2)%numtasks;
+	return (unsigned long) (classidx/2)%numtasks;
 }
 
-inline unsigned long get_globaldata_index(unsigned long cacheindex){
-    return (unsigned long) cacheindex%numtasks;
+unsigned long get_globaldata_index(unsigned long cacheindex){
+	unsigned long remain, chunksize, index;
+	if(cachesize >= numtasks){
+		remain = cachesize%numtasks;
+		chunksize = (cachesize-remain)/numtasks;
+
+		index = cacheindex/chunksize;
+		if(index == numtasks) index = numtasks-1;
+		if(index > numtasks){
+			printf("INDEX ERROR: %lu\n", index);
+			exit(EXIT_FAILURE);
+		}
+		//printf("Cacheindex: %lu Cachesize: %lu Chunksize: %lu Windowindex: %lu\n",
+		//		cacheindex, cachesize, chunksize, index);
+	}else{
+		index = 0;
+	}
+	return index;
 }
