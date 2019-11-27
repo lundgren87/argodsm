@@ -158,6 +158,44 @@ unsigned long isPowerOf2(unsigned long x){
   return retval;
 }
 
+void* parallelDiff(void* tid_ptr){
+	int i, j, tid;
+	tid = *((int *) tid_ptr);
+
+	/** Iterate over whole cache */
+	for(i = 0; i < cachesize; i+=CACHELINE){
+		unsigned long distrAddr = cacheControl[i].tag;
+		/** If the cache index has actually been used? */
+		if(distrAddr != GLOBAL_NULL){
+			unsigned long lineAddr = distrAddr/(CACHELINE*pagesize);
+			lineAddr*=(pagesize*CACHELINE);
+			unsigned long homenode = getHomenode(lineAddr);
+
+			/** Only process entries for ONE node corresponding to tid */
+			if(homenode == tid){
+				void * lineptr = (char*)startAddr + lineAddr;
+				argo_byte dirty = cacheControl[i].dirty;
+				if(dirty == DIRTY){
+					mprotect(lineptr, pagesize*CACHELINE, PROT_READ);
+					cacheControl[i].dirty=CLEAN;
+					for(j=0; j < CACHELINE; j++){
+						storepageDIFF(i+j,pagesize*j+lineAddr);
+					}
+				}
+			}
+		}
+	}
+
+	/** Unlock window for this node */
+	for(j = 0; j < numtasks; j++){
+		if(barwindowsused[tid][j] == 1){
+			barwindowsused[tid][j] = 0;
+			globaldatalock[tid][j].unlock(tid, globalDataWindow[tid][j]);
+		}
+	}
+
+	return nullptr;
+}
 void flushWriteBuffer(void){
 	unsigned long i,j;
 	double t1,t2;
@@ -165,35 +203,19 @@ void flushWriteBuffer(void){
 	t1 = MPI_Wtime();
 	pthread_mutex_lock(&wbmutex);
 
-  for(i = 0; i < cachesize; i+=CACHELINE){
-    unsigned long distrAddr = cacheControl[i].tag;
-    if(distrAddr != GLOBAL_NULL){
+	/** Create thread data and threads */
+	int* tid = new int[numtasks];
+	pthread_t flushthreads[numtasks];
 
-      unsigned long distrAddr = cacheControl[i].tag;
-      unsigned long lineAddr = distrAddr/(CACHELINE*pagesize);
-      lineAddr*=(pagesize*CACHELINE);
-			void * lineptr = (char*)startAddr + lineAddr;
-
-      argo_byte dirty = cacheControl[i].dirty;
-			if(dirty == DIRTY){
-				mprotect(lineptr, pagesize*CACHELINE, PROT_READ);
-				cacheControl[i].dirty=CLEAN;
-				for(j=0; j < CACHELINE; j++){
-					storepageDIFF(i+j,pagesize*j+lineAddr);
-				}
-			}
-    }
-  }
-
-	for(i = 0; i < (unsigned long)numtasks; i++){
-                for(j = 0; j < (unsigned long)numtasks; j++){
-                        if(barwindowsused[i][j] == 1){
-                                barwindowsused[i][j] = 0;
-                                globaldatalock[i][j].unlock(i, globalDataWindow[i][j]);
-                        }
-                }
+	/** Start and wait for threads */
+	for(i = 0; i<numtasks; i++){
+		tid[i] = i;
+		pthread_create(&flushthreads[i], 0, parallelDiff, &tid[i]);
 	}
+	for(auto &t : flushthreads) pthread_join(t, nullptr);
 
+	/** Clean up */
+	delete tid;
 	writebufferstart = 0;
 	writebufferend = 0;
 
@@ -1082,7 +1104,6 @@ void argo_initialize(std::size_t argo_size, std::size_t cache_size){
 	vm::map_memory(tmpcache, pagesize, current_offset, PROT_READ|PROT_WRITE);
 
 	sem_init(&globallocksem,0,1);
-
 	allocationOffset = (unsigned long *)calloc(1,sizeof(unsigned long));
 	globalDataWindow = (MPI_Win**)malloc(sizeof(MPI_Win*)*numtasks);
 	sharerWindow = (MPI_Win**)malloc(sizeof(MPI_Win*)*numtasks);
