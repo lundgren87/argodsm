@@ -57,8 +57,8 @@
 /** @brief Hack to avoid warnings when you have unused variables in a function */
 #define UNUSED_PARAM(x) (void)(x)
 
-/** @brief 1 for activating two memory requests in parallel, 0 for disabling*/
-#define DUAL_LOAD 1
+/** @brief The maximum number of ArgoDSM pages to fetch on each remote request */
+#define LOAD_PAGES 4
 
 /** @brief Wrapper for unsigned char - basically a byte */
 typedef unsigned char argo_byte;
