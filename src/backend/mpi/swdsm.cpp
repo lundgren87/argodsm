@@ -419,9 +419,6 @@ void handler(int sig, siginfo_t *si, void *unused){
 
 	if(state == INVALID || (tag != aligned_access_offset && tag != GLOBAL_NULL)) {
 		load_cache_entry(aligned_access_offset, (startIndex%cachesize));
-#ifdef DUAL_LOAD
-		prefetch_cache_entry((aligned_access_offset+CACHELINE*pagesize), ((startIndex+CACHELINE)%cachesize));
-#endif
 		pthread_mutex_unlock(&cachemutex);
 		double t2 = MPI_Wtime();
 		stats.loadtime+=t2-t1;
@@ -549,147 +546,239 @@ void write_back_writebuffer() {
 }
 
 void load_cache_entry(unsigned long loadtag, unsigned long loadline) {
-	int i;
-	unsigned long homenode;
-	unsigned long id = 1 << getID();
-	unsigned long invid = ~id;
+	unsigned long i, j, p, n, id, invid, idx;
+	unsigned long loadnode, tmpnode, startidx, endidx;
+	unsigned long blocksize, lineAddr, tmpaddr, have_lock;
+	void* tmpptr;
 
-	if(loadtag>=size_of_all){//Trying to access/prefetch out of memory
-		return;
+	if(loadtag >= size_of_all){ // Address out of bounds
+		printf("Address %lu out of bounds.\n", loadtag);
+		exit(EXIT_FAILURE);
 	}
-	homenode = getHomenode(loadtag);
-	unsigned long cacheIndex = loadline;
-	if(cacheIndex >= cachesize){
-		printf("idx > size   cacheIndex:%ld cachesize:%ld\n",cacheIndex,cachesize);
-		return;
+	if(loadline >= cachesize){ // Cache index out of bounds
+		printf("Cache index %ld out of bounds (cachesize: %lu).\n", loadline, cachesize);
+		exit(EXIT_FAILURE);
 	}
+	
+	/** Assign node IDs */
+	id = 1 << getID();
+	invid = ~id;
+
+	/** Calculate start values and store some parameters */
+	blocksize = pagesize*CACHELINE;
+	lineAddr = loadtag;
+	lineAddr /= blocksize;
+	lineAddr *= blocksize;
+	startidx = loadline/CACHELINE;
+	startidx *= CACHELINE;
+	endidx = startidx+CACHELINE;
+	loadnode = getHomenode(lineAddr);
+	have_lock = 0;
+
 	sem_wait(&ibsem);
 
-
-	unsigned long pageAddr = loadtag;
-	unsigned long blocksize = pagesize*CACHELINE;
-	unsigned long lineAddr = pageAddr/blocksize;
-	lineAddr *= blocksize;
-
-	unsigned long startidx = cacheIndex/CACHELINE;
-	startidx*=CACHELINE;
-	unsigned long end = startidx+CACHELINE;
-
-	if(end>=cachesize){
-		end = cachesize;
-	}
-
-	argo_byte tmpstate = cacheControl[startidx].state;
-	unsigned long tmptag = cacheControl[startidx].tag;
-
-	if(tmptag == lineAddr && tmpstate != INVALID){
+	/** Return if cache entry is already up to date. */
+	if(cacheControl[startidx].tag == lineAddr && cacheControl[startidx].state != INVALID){
 		sem_post(&ibsem);
 		return;
 	}
 
+	/** Adjust endidx to ensure the whole chunk to fetch is on the same node */
+	p = 1;
+	for(j = startidx+CACHELINE; j < startidx+LOAD_PAGES; j+=CACHELINE, p+=CACHELINE){
+		tmpaddr = lineAddr + p*CACHELINE*pagesize;
+		/** Increase endidx if it is within bounds and on the same node */
+		if(tmpaddr < size_of_all && j < cachesize){
+			tmpnode = getHomenode(tmpaddr);
+			if(tmpnode == loadnode){
+				endidx++;
+			}
+		}else{
+			/** Stop when either condition is not satisfied */
+			break;
+		}
+	}
 
-	void * lineptr = (char*)startAddr + lineAddr;
+	/** Allocate space for loading things */
+	unsigned long new_sharer = 0;
+	unsigned long fetch_size = endidx-startidx;
+	unsigned long classidx_size = fetch_size*2;
 
-	if(cacheControl[startidx].tag  != lineAddr){
-		if(cacheControl[startidx].tag  != lineAddr){
+	/** for each page to prefetch, 1 if page should be cached else 0 */
+	unsigned long pages_to_load[fetch_size] = {};
+	/** to store whether we were previously sharer of this page or not */
+	unsigned long prevsharers[fetch_size] = {};
+	/** Contains classification index for each prefetch page */
+	unsigned long classidx_arr[fetch_size] = {};
+	/** Used to store which classification indexes to remotely update */
+	unsigned long sharerid[classidx_size] = {};
+	/** Store sharers from remote node temporarily */
+	unsigned long tempsharers[classidx_size] = {};
+	/** temporarily store remotely fetched data */
+	char * tempData = new char[fetch_size*pagesize];
+
+	/** Write back existing cache entries if needed */
+	for(idx = startidx, p = 0; idx < endidx; idx+=CACHELINE,p+=CACHELINE){
+		/** Address and pointer to the data being loaded */
+		tmpaddr = lineAddr + p*CACHELINE*pagesize;
+		tmpptr = (char*)startAddr + tmpaddr;
+		
+		/** Skip updating pages that are already present and valid in the cache */
+		if(cacheControl[idx].tag  == tmpaddr && cacheControl[idx].state != INVALID){
+			pages_to_load[p] = 0;
+			continue;
+		}else{
+			pages_to_load[p] = 1;
+		}
+
+		/** If wbmutex is not yet held by us, take it */
+		if(!have_lock){
 			if(pthread_mutex_trylock(&wbmutex) != 0){
 				sem_post(&ibsem);
 				pthread_mutex_lock(&wbmutex);
 				sem_wait(&ibsem);
 			}
+			have_lock = 1;
+		}
 
-			void * tmpptr2 = (char*)startAddr + cacheControl[startidx].tag;
-			if(cacheControl[startidx].tag != GLOBAL_NULL && cacheControl[startidx].tag  != lineAddr){
-				argo_byte dirty = cacheControl[startidx].dirty;
-				if(dirty == DIRTY){
-					mprotect(tmpptr2,blocksize,PROT_READ);
-					int j;
-					for(j=0; j < CACHELINE; j++){
-						storepageDIFF(startidx+j,pagesize*j+(cacheControl[startidx].tag));
-					}
+		/** If another page occupies the cache index, begin to evict it. */
+		if((cacheControl[idx].tag != tmpaddr) && (cacheControl[idx].tag != GLOBAL_NULL)){
+			void * oldptr = (char*)startAddr + cacheControl[idx].tag;
+
+			/** If the page is dirty, write it back */
+			if(cacheControl[idx].dirty == DIRTY){
+				mprotect(oldptr,blocksize,PROT_READ);
+				for(j=0; j < CACHELINE; j++){
+					storepageDIFF(idx+j,pagesize*j+(cacheControl[idx].tag));
 				}
-
-				for(i = 0; i < numtasks; i++){
-					if(barwindowsused[i] == 1){
-						MPI_Win_unlock(i, globalDataWindow[i]);
-						barwindowsused[i] = 0;
-					}
-				}
-
-				cacheControl[startidx].state = INVALID;
-				cacheControl[startidx].tag = lineAddr;
-
-				cacheControl[startidx].dirty=CLEAN;
-				vm::map_memory(lineptr, blocksize, pagesize*startidx, PROT_NONE);
-				mprotect(tmpptr2,blocksize,PROT_NONE);
 			}
-			pthread_mutex_unlock(&wbmutex);
+			/** Ensure the writeback has finished */
+			for(i = 0; i < numtasks; i++){
+				if(barwindowsused[i] == 1){
+					MPI_Win_unlock(i, globalDataWindow[i]);
+					barwindowsused[i] = 0;
+				}
+			} // TODO: move this out to avoid unlocking for every page?
+
+			/* Clean up cache and protect memory */
+			cacheControl[idx].state = INVALID;
+			cacheControl[idx].tag = tmpaddr;
+			cacheControl[idx].dirty = CLEAN;
+			vm::map_memory(tmpptr, blocksize, pagesize*idx, PROT_NONE);
+			mprotect(oldptr,blocksize,PROT_NONE);
 		}
 	}
+	if(have_lock){
+		pthread_mutex_unlock(&wbmutex);
+		have_lock = 0;
+	}
+	
+	/** Initialize some things */
+	for(i = 0; i < fetch_size; i+=CACHELINE){
+		tmpaddr = lineAddr + i*CACHELINE*pagesize;
+		classidx_arr[i] = get_classification_index(tmpaddr);
+	}
 
-
-
+	/** Increase stat counter as load will be performed */
 	stats.loads++;
-	unsigned long classidx = get_classification_index(lineAddr);
-	unsigned long tempsharer = 0;
-	unsigned long tempwriter = 0;
 
+	/** Get globalSharers info from own node and add self to it */
 	MPI_Win_lock(MPI_LOCK_SHARED, workrank, 0, sharerWindow);
-	unsigned long prevsharer = (globalSharers[classidx])&id;
+	for(i = 0; i < fetch_size; i+=CACHELINE){
+		/** Do nothing if this page is to be skipped */
+		if(pages_to_load[i] == 0) continue;
+		prevsharers[i] = (globalSharers[classidx_arr[i]])&id;
+		if(prevsharers[i] == 0){
+			sharerid[i*2] = id;
+			new_sharer = 1;
+		}
+	}
 	MPI_Win_unlock(workrank, sharerWindow);
-	int n;
-	homenode = getHomenode(lineAddr);
 
-	if(prevsharer==0 ){ //if there is strictly less than two 'stable' sharers
-		MPI_Win_lock(MPI_LOCK_SHARED, homenode, 0, sharerWindow);
-		MPI_Get_accumulate(&id, 1, MPI_LONG, &tempsharer, 1, MPI_LONG,
-			homenode, classidx, 1, MPI_LONG, MPI_BOR, sharerWindow);
-		MPI_Get(&tempwriter, 1,MPI_LONG,homenode,classidx+1,1,MPI_LONG,sharerWindow);
-		MPI_Win_unlock(homenode, sharerWindow);
+	/** If this node is a new sharer of at least one of the pages */
+	if(new_sharer){
+		/** Register ourselves in the loadnode directory */
+		MPI_Win_lock(MPI_LOCK_SHARED, loadnode, 0, sharerWindow);
+		MPI_Get_accumulate(sharerid, classidx_size, MPI_LONG,
+				tempsharers, classidx_size, MPI_LONG,
+				loadnode, classidx_arr[0], classidx_size,
+				MPI_LONG, MPI_BOR, sharerWindow);
+		MPI_Win_unlock(loadnode, sharerWindow);
 	}
 
+	/** Register the received remote globalSharers information locally */
 	MPI_Win_lock(MPI_LOCK_EXCLUSIVE, workrank, 0, sharerWindow);
-	globalSharers[classidx] |= tempsharer;
-	globalSharers[classidx+1] |= tempwriter;
+	for(i = 0; i < fetch_size; i+=CACHELINE){
+		if(pages_to_load[i]){
+			globalSharers[classidx_arr[i]] |= tempsharers[i*2];
+			globalSharers[classidx_arr[i]] |= id;
+			globalSharers[classidx_arr[i]+1] |= tempsharers[(i*2)+1];
+		}
+	}
 	MPI_Win_unlock(workrank, sharerWindow);
 
-	unsigned long offset = getOffset(lineAddr);
-	if(isPowerOf2((tempsharer)&invid) && tempsharer != id && prevsharer == 0){ //Other private. but may not have loaded page yet.
-		unsigned long ownid = tempsharer&invid; // remove own bit
-		unsigned long owner = invalid_node; // initialize to failsafe value
-		for(n=0; n<numtasks; n++) {
-			if(1ul<<n==ownid) {
-				owner = n; //just get rank...
-				break;
+	/** If any owner of a page we loaded needs to downgrade from private
+	 * to shared, we need to notify it */
+	/** This is not possible to do in one call since all can have different owners */
+	/** TODO: Ensure that this does not enter falsely according to issue#28 comments */
+	for(i = 0; i < fetch_size; i+=CACHELINE){
+		if(pages_to_load[i]){
+			/** If there is any other private owner, and we were previously not sharer */
+			if(isPowerOf2((tempsharers[i*2])&invid) && 
+					tempsharers[i*2] != id && prevsharers[i] == 0){
+				unsigned long ownid = tempsharers[i*2]&invid; // remove own bit
+				unsigned long owner = invalid_node; // initialize to failsafe value
+				for(n=0; n<numtasks; n++) {
+					if(1ul<<n==ownid) {
+						owner = n; //just get rank...
+						break;
+					}
+				}
+				/** Downgrade the node (P>S) */
+				if(owner != invalid_node) {
+					MPI_Win_lock(MPI_LOCK_EXCLUSIVE, owner, 0, sharerWindow);
+					MPI_Accumulate(&id, 1, MPI_LONG, owner,
+							classidx_arr[i], 1, MPI_LONG, MPI_BOR, sharerWindow);
+					MPI_Win_unlock(owner, sharerWindow);
+				}
+
 			}
 		}
-		if(owner != invalid_node) {
-			MPI_Win_lock(MPI_LOCK_EXCLUSIVE, owner, 0, sharerWindow);
-			MPI_Accumulate(&id, 1, MPI_LONG, owner, classidx, 1, MPI_LONG, MPI_BOR, sharerWindow);
-			MPI_Win_unlock(owner, sharerWindow);
+	}
+
+	/** Finally, get the cache data and store it temporarily */
+	unsigned long offset = getOffset(lineAddr);
+	MPI_Win_lock(MPI_LOCK_SHARED, loadnode , 0, globalDataWindow[loadnode]);
+	MPI_Get(tempData, fetch_size, cacheblock,
+					loadnode, offset, fetch_size, cacheblock, globalDataWindow[loadnode]);
+	MPI_Win_unlock(loadnode, globalDataWindow[loadnode]);
+
+	/** Update the cache */
+	for(idx = startidx, p = 0; idx < endidx; idx+=CACHELINE, p+=CACHELINE){
+		/** Update only the pages necessary */
+		if(pages_to_load[p]){
+			tmpaddr = lineAddr + p*CACHELINE*pagesize;
+			tmpptr = (char*)startAddr + tmpaddr;
+
+			/** Insert the data in the node cache */
+			memcpy(&cacheData[idx*blocksize], &tempData[p*blocksize], blocksize);
+			
+			/** If this is the first time inserting in to this index, perform vm map */
+			if(cacheControl[idx].tag == GLOBAL_NULL){
+				vm::map_memory(tmpptr, blocksize, pagesize*idx, PROT_READ);
+				cacheControl[idx].tag = tmpaddr;
+			}
+			else{
+				/** Else, just mprotect the region */
+				mprotect(tmpptr, blocksize, PROT_READ);
+			}
+			touchedcache[idx] = 1;
+			cacheControl[idx].state = VALID;
+			cacheControl[idx].dirty=CLEAN;
 		}
-
 	}
-
-	MPI_Win_lock(MPI_LOCK_SHARED, homenode , 0, globalDataWindow[homenode]);
-	MPI_Get(&cacheData[startidx*pagesize],
-					1,
-					cacheblock,
-					homenode,
-					offset, 1,cacheblock,globalDataWindow[homenode]);
-	MPI_Win_unlock(homenode, globalDataWindow[homenode]);
-
-	if(cacheControl[startidx].tag == GLOBAL_NULL){
-		vm::map_memory(lineptr, blocksize, pagesize*startidx, PROT_READ);
-		cacheControl[startidx].tag = lineAddr;
-	}
-	else{
-		mprotect(lineptr,pagesize*CACHELINE,PROT_READ);
-	}
-	touchedcache[startidx] = 1;
-	cacheControl[startidx].state = VALID;
-
-	cacheControl[startidx].dirty=CLEAN;
+	/** Ensure to free space occupied by tempData */
+	delete[] tempData;
 	sem_post(&ibsem);
 }
 
