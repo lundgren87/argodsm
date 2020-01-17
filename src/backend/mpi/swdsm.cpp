@@ -876,7 +876,7 @@ void argo_initialize(std::size_t argo_size, std::size_t cache_size){
 	cachesize /= CACHELINE;
 	cachesize *= CACHELINE;
 
-	classificationSize = 2*cachesize; // Could be smaller ?
+	classificationSize = 2*(argo_size/pagesize);
 	writebuffersize = WRITE_BUFFER_PAGES/CACHELINE;
 	writebuffer = (unsigned long *) malloc(sizeof(unsigned long)*writebuffersize);
 	for(i = 0; i < (int)writebuffersize; i++){
