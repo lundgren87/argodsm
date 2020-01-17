@@ -796,7 +796,7 @@ void argo_initialize(std::size_t argo_size, std::size_t cache_size){
 	cachesize = std::max(cachesize, static_cast<unsigned long>(pagesize*CACHELINE*2));
 	cachesize /= pagesize;
 
-	classificationSize = 2*cachesize; // Could be smaller ?
+	classificationSize = 2*(argo_size/pagesize);
 	argo_write_buffer = new write_buffer<std::size_t>();
 
 	barwindowsused = (char *)malloc(numtasks*sizeof(char));
