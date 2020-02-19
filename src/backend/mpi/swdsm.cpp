@@ -602,6 +602,8 @@ void load_cache_entry(unsigned long loadtag, unsigned long loadline) {
 	unsigned long tempsharers[classidx_size] = {};
 	/** temporarily store remotely fetched data */
 	char * tempData = new char[fetch_size*pagesize];
+	/** Used to mark pages that are already handled during remote self-downgrade */
+	unsigned long handled_pages[fetch_size] = {};
 
 	/** Write back existing cache entries if needed */
 	for(idx = startidx, p = 0; idx < endidx; idx+=CACHELINE,p+=CACHELINE){
@@ -705,14 +707,14 @@ void load_cache_entry(unsigned long loadtag, unsigned long loadline) {
 
 	/** If any owner of a page we loaded needs to downgrade from private
 	 * to shared, we need to notify it */
-	/** This is not possible to do in one call since all can have different owners */
-	/** TODO: Ensure that this does not enter falsely according to issue#28 comments */
 	for(i = 0; i < fetch_size; i+=CACHELINE){
-		if(pages_to_load[i]){
-			/** If there is any other private owner, and we were previously not sharer */
-			if(isPowerOf2((tempsharers[i*2])&invid) && 
-					tempsharers[i*2] != id && prevsharers[i] == 0){
-				unsigned long ownid = tempsharers[i*2]&invid; // remove own bit
+		/** Skip pages that are not loaded or already handled */
+		if(pages_to_load[i] && !handled_pages[i]){
+			memset(sharerid, 0, classidx_size*sizeof(unsigned long));
+			unsigned long ownid = tempsharers[i*2]&invid; // remove own bit
+
+			/* If there is exactly one other owner that we did not already know about */
+			if(isPowerOf2(ownid) && ownid != 0 && prevsharers[i] == 0){
 				unsigned long owner = invalid_node; // initialize to failsafe value
 				for(n=0; n<numtasks; n++) {
 					if(1ul<<n==ownid) {
@@ -720,14 +722,23 @@ void load_cache_entry(unsigned long loadtag, unsigned long loadline) {
 						break;
 					}
 				}
-				/** Downgrade the node (P>S) */
-				if(owner != invalid_node) {
-					MPI_Win_lock(MPI_LOCK_EXCLUSIVE, owner, 0, sharerWindow);
-					MPI_Accumulate(&id, 1, MPI_LONG, owner,
-							classidx_arr[i], 1, MPI_LONG, MPI_BOR, sharerWindow);
-					MPI_Win_unlock(owner, sharerWindow);
+				sharerid[i*2] = id;
+				
+				/** Check if any more elements need downgrading on the same node */
+				for(j = i+CACHELINE; j < fetch_size; j+=CACHELINE){
+					if(pages_to_load[j] && !handled_pages[j]){
+						if((tempsharers[j*2]&invid) == ownid && prevsharers[j] == 0){
+							sharerid[j*2] = id;
+							handled_pages[j] = 1; //Ensure these are marked as completed
+						}
+					}
 				}
 
+				/** Downgrade all relevant pages on the owner node (P>S) */
+				MPI_Win_lock(MPI_LOCK_EXCLUSIVE, owner, 0, sharerWindow);
+				MPI_Accumulate(sharerid, classidx_size, MPI_LONG, owner,
+						classidx_arr[0], classidx_size, MPI_LONG, MPI_BOR, sharerWindow);
+				MPI_Win_unlock(owner, sharerWindow);
 			}
 		}
 	}
