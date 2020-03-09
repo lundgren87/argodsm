@@ -109,10 +109,6 @@ typedef struct argo_statisticsStruct
                 double ssitime;
                 /** @brief Time spent in ssd */
                 double ssdtime;
-                /** @brief Time spent doing MPI_Put */
-                double puttime;
-                /** @brief Time spent doing pagediffs */
-                double difftime;
                 /** @brief Time spent waiting for cachemutex */
                 double cachemutextime;
                 /** @brief Time spent waiting for cachemutex */

@@ -1253,8 +1253,6 @@ void clearStatistics(){
 	stats.locks = 0;
         stats.ssitime = 0;
         stats.ssdtime = 0;
-        stats.puttime = 0;
-        stats.difftime = 0;
         stats.cachemutextime = 0;
         stats.cachemutextime_load = 0;
         stats.cachemutextime_store = 0;
@@ -1264,7 +1262,6 @@ void clearStatistics(){
 
 void storepageDIFF(unsigned long index, unsigned long addr){
 	unsigned int i,j;
-        double t1diff, t2diff, t1put, t2put;
 	int cnt = 0;
 	unsigned long homenode = getHomenode(addr);
 	unsigned long offset = getOffset(addr);
@@ -1273,7 +1270,6 @@ void storepageDIFF(unsigned long index, unsigned long addr){
 	char * real = (char *)startAddr+addr;
 	size_t drf_unit = sizeof(char);
 
-        t1diff = MPI_Wtime();
 	if(barwindowsused[homenode] == 0){
 		MPI_Win_lock(MPI_LOCK_EXCLUSIVE, homenode, 0, globalDataWindow[homenode]);
 		barwindowsused[homenode] = 1;
@@ -1292,23 +1288,15 @@ void storepageDIFF(unsigned long index, unsigned long addr){
 		}
 		else{
 			if(cnt > 0){
-                                t1put = MPI_Wtime();
 				MPI_Put(&real[i-cnt], cnt, MPI_BYTE, homenode, offset+(i-cnt), cnt, MPI_BYTE, globalDataWindow[homenode]);
-				t2put = MPI_Wtime();
                                 cnt = 0;
-                                stats.puttime += t2put-t1put;
 			}
 		}
 	}
 	if(cnt > 0){
-                t1put = MPI_Wtime();
 		MPI_Put(&real[i-cnt], cnt, MPI_BYTE, homenode, offset+(i-cnt), cnt, MPI_BYTE, globalDataWindow[homenode]);
-	        t2put = MPI_Wtime();
-                stats.puttime += t2put-t1put;
         }
-        t2diff = MPI_Wtime();
 	stats.stores++;
-        stats.difftime += t2diff-t1diff;
 }
 
 void printStatistics(){
@@ -1320,7 +1308,7 @@ void printStatistics(){
 		stats.storetime, stats.loadtime, stats.flushtime, stats.writebacktime);
 	printf("# Barriertime : %lf, selfinvtime %lf\n",stats.barriertime, stats.selfinvtime);
 	printf("stores:%lu, loads:%lu, barriers:%lu\n",stats.stores,stats.loads,stats.barriers);
-	printf("Locks:%d, difftime:%lf, puttime:%lf\n",stats.locks, stats.difftime, stats.puttime);
+	printf("Locks:%d\n",stats.locks);
 	printf("SSItime:%lf, SSDtime:%lf, Cachemutextime:%lf\n", stats.ssitime, stats.ssdtime, stats.cachemutextime);
 	printf("Cachemutextime - load:%lf, store:%lf\n", stats.cachemutextime_load, stats.cachemutextime_store);
 	printf("Cachemutextime - ssi:%lf, ssd:%lf\n", stats.cachemutextime_ssi, stats.cachemutextime_ssd);
