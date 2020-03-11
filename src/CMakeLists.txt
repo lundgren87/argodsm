@@ -11,6 +11,11 @@ foreach(src ${allocator_sources})
 	list(APPEND argo_sources allocators/${src})
 endforeach(src)
 
+set(env_sources env.cpp)
+foreach(src ${env_sources})
+	list(APPEND argo_sources env/${src})
+endforeach(src)
+
 set(synchronization_sources
 	synchronization.cpp
 	cohort_lock.cpp
@@ -57,7 +62,7 @@ foreach(src ${vm_sources})
 endforeach(src)
 
 # add the frontend library
-add_library(argo ${argo_sources})
+add_library(argo SHARED ${argo_sources})
 
 option(ARGO_USE_LIBNUMA
 	"Use libnuma to determine NUMA structure within ArgoDSM" ON)

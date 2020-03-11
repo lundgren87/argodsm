@@ -5,6 +5,7 @@
  */
 
 #include "data_distribution/data_distribution.hpp"
+#include "signal/signal.hpp"
 #include "synchronization/global_tas_lock.hpp"
 #include "types/types.hpp"
 #include "virtual_memory/virtual_memory.hpp"
@@ -12,11 +13,13 @@
 
 #include <atomic>
 #include <condition_variable>
+#include <csignal>
 #include <cstddef>
 #include <cstring>
 #include <mutex>
 
 namespace vm = argo::virtual_memory;
+namespace sig = argo::signal;
 
 /** @brief a lock for atomically executed operations */
 std::mutex atomic_op_mutex;
@@ -49,19 +52,36 @@ const std::size_t nodes = 1;
 char* memory;
 
 /**
- * @brief total memory size
+ * @brief total memory size in bytes
  * @deprecated this is to mimic the prototype and mpi backend
  */
 std::size_t memory_size;
 
+/**
+ * @brief a dummy signal handler function
+ * @warning this function is not strictly portable because it resets the handler and re-raises the signal
+ * @param sig signal number
+ * @see check `man sigaction` for additional information
+ */
+void singlenode_handler(int sig, siginfo_t*, void*) {
+	printf("A segfault was encountered in ArgoDSM memory. "
+		"This should never happen, as the singlenode backend is in use.\n"
+	);
+	std::signal(sig, SIG_DFL);
+	std::raise(sig);
+}
 namespace argo {
 	namespace backend {
 
-		void init(std::size_t size) {
-			memory = static_cast<char*>(vm::allocate_mappable(4096, size));
-			memory_size = size;
+		void init(std::size_t argo_size, std::size_t cache_size){
+			/** @todo the cache_size parameter is not needed
+			 *        and should not be part of the backend interface */
+			(void)(cache_size);
+			memory = static_cast<char*>(vm::allocate_mappable(4096, argo_size));
+			memory_size = argo_size;
 			using namespace data_distribution;
-			naive_data_distribution<0>::set_memory_space(nodes, memory, size);
+			naive_data_distribution<0>::set_memory_space(nodes, memory, argo_size);
+			sig::signal_handler<SIGSEGV>::install_argo_handler(&singlenode_handler);
 		}
 
 		node_id_t node_id() {

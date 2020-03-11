@@ -30,6 +30,8 @@ respectively are required.
 
 ### Building ArgoDSM
 
+Note: adjust the below commands to your needs, especially `CMAKE_INSTALL_PREFIX`.
+
 ``` bash
 git clone https://github.com/etascale/argodsm.git
 cd argodsm
@@ -40,15 +42,17 @@ mv googletest-release-1.7.0 gtest-1.7.0
 cd ..
 mkdir build
 cd build
-cmake -DARGO_BACKEND_MPI=ON        \
-      -DARGO_BACKEND_SINGLENODE=ON \
-      -DARGO_TESTS=ON              \
-      -DBUILD_DOCUMENTATION=ON     \
-      -DCMAKE_CXX_COMPILER=mpic++  \
-      -DCMAKE_C_COMPILER=mpicc     \
+cmake -DARGO_BACKEND_MPI=ON              \
+      -DARGO_BACKEND_SINGLENODE=ON       \
+      -DARGO_TESTS=ON                    \
+      -DBUILD_DOCUMENTATION=ON           \
+      -DCMAKE_CXX_COMPILER=mpic++        \
+      -DCMAKE_C_COMPILER=mpicc           \
+      -DCMAKE_INSTALL_PREFIX=/usr/local/ \
       ../
 make
 make test
+make install
 ```
 
 Initially, you need to get the ArgoDSM sources. If you already have a tarball,
@@ -86,16 +90,18 @@ the `ccmake` tool. The difference is that the first one accepts all the build
 options as command line arguments, while the second one works interactively.
 Below is an example call to `cmake` with all the recommended command line
 arguments. If you plan on contributing to the ArgoDSM source code, you should
-also enable the `ARGO_DEBUG` option. After generating the makefiles, then just
-build the library and executables with a simple make command.
+also enable the `ARGO_DEBUG` option. Remember to change `CMAKE_INSTALL_PREFIX`
+to a path that you have write access to. After generating the makefiles proceed
+to building the library and executables with a simple make command.
 
 ``` bash
-cmake -DARGO_BACKEND_MPI=ON        \
-      -DARGO_BACKEND_SINGLENODE=ON \
-      -DARGO_TESTS=ON              \
-      -DBUILD_DOCUMENTATION=ON     \
-      -DCMAKE_CXX_COMPILER=mpic++  \
-      -DCMAKE_C_COMPILER=mpicc     \
+cmake -DARGO_BACKEND_MPI=ON              \
+      -DARGO_BACKEND_SINGLENODE=ON       \
+      -DARGO_TESTS=ON                    \
+      -DBUILD_DOCUMENTATION=ON           \
+      -DCMAKE_CXX_COMPILER=mpic++        \
+      -DCMAKE_C_COMPILER=mpicc           \
+      -DCMAKE_INSTALL_PREFIX=/usr/local/ \
       ../
 make
 ```
@@ -117,6 +123,16 @@ Keep in mind that currently even the MPI tests are run on a single node without
 invoking `mpirun`. After running the previous command, you should also run the
 tests with at least 4 nodes. To learn how to run the MPI tests on multiple
 nodes, proceed to the next section.
+
+``` bash
+make install
+```
+
+This step will copy the final ArgoDSM include files to `/usr/local/include` and
+libraries to `/usr/local/lib/`. You can choose a different path above if you
+want, but remember to either set `LIBRARY_PATH`, `INCLUDE_PATH`, and
+`LD_LIBRARY_PATH` accordingly, or provide the correct paths (`-L`, `-I`, and
+`-Wl,-rpath,`) to your compiler when compiling applications for ArgoDSM.
 
 ### Running the Applications
 

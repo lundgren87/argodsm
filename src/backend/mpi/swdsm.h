@@ -138,9 +138,10 @@ void set_sighandler();
 /*ArgoDSM init and finish*/
 /**
  * @brief Initializes ArgoDSM runtime
- * @param size Size of wanted global address space
+ * @param argo_size Size of wanted global address space in bytes
+ * @param cache_size Size in bytes of your cache, will be rounded to nearest multiple of cacheline size (in bytes)
  */
-void argo_initialize(unsigned long long size);
+void argo_initialize(std::size_t argo_size, std::size_t cache_size);
 
 /**
  * @brief Shutting down ArgoDSM runtime
@@ -202,24 +203,6 @@ void addToWriteBuffer(unsigned long cacheIndex);
  * @param addr address to page in global address space
  */
 void storepageDIFF(unsigned long index, unsigned long addr);
-
-/**
- * @brief Loop-function for writing pages from writebuffer into remote global address space
- * @param x unused
- */
-void *writeloop(void * x);
-
-/**
- * @brief Loop-function for loading pages into global address space
- * @param x unused
- */
-void * loadcacheline(void * x);
-
-/**
- * @brief Loop-function for prefetching pages into global address space
- * @param x unused
- */
-void * prefetchcacheline(void * x);
 
 /*Statistics*/
 /**
@@ -331,12 +314,6 @@ unsigned long isPowerOf2(unsigned long x);
  * @return cacheindex where addr should map to in the ArgoDSM page cache
  */
 unsigned long getCacheIndex(unsigned long addr);
-/**
- * @brief Returns an address correspongint to the page addr is addressing
- * @param addr Address in the global address space
- * @return addr rounded down to nearest multiple of pagesize
- */
-unsigned long alignAddr(unsigned long addr);
 /**
  * @brief Gives homenode for a given address
  * @param addr Address in the global address space

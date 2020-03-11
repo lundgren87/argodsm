@@ -50,9 +50,15 @@ is protected by locks.
 The first step is adding the ArgoDSM initialization and finalization function.
 Specifically, `argo::init` needs to be run in `main` before any other functions
 are called, and `argo::finalize` should be the last ArgoDSM function called
-before exiting `main`. In the current version of ArgoDSM, `argo::init` has one
-required argument which indicates the total amount of memory ArgoDSM should
-allocate. This will be deprecated in future versions.
+before exiting `main`. In the current version of ArgoDSM, `argo::init` has two
+optional arguments which indicate the amount of shared memory (in bytes) ArgoDSM
+should allocate and the desired local cache size, respectively. When the values
+are given to `argo::init`, they will be used. If one or both are omitted, then
+the value (in bytes) in the environment variable `ARGO_MEMORY_SIZE` (for the
+shared memory size) and `ARGO_CACHE_SIZE` (for the local cache size) will be
+used instead. If the environment variables are empty, some default numbers will
+be used. At the time of this writing they are 8GB and 1GB for shared memory and
+local cache size, respectively.
 
 In addition to adding the ArgoDSM initialization and finalization functions,
 there are three main tasks that need to be done to convert a pthreads
@@ -170,17 +176,18 @@ The final result of all the changes is this:
 {% include argo_example.cpp %}
 ```
 
-We can now compile the application. We assume that `${ARGO_INSTALL_DIRECTORY}` is
-where you installed ArgoDSM. If the ArgoDSM files are already in your
-`(LD_)LIBRARY_PATH` and include path, you can skip the `-L...` and `-I...`
-switches. If you have no idea what we are talking about, you should ask your
-system administrator.
+We can now compile the application. We assume that `${ARGO_INSTALL_DIRECTORY}`
+is where you installed ArgoDSM. If the ArgoDSM files are already in your
+`LIBRARY_PATH`, `INCLUDE_PATH`, and `LD_LIBRARY_PATH`, you can skip the
+`-L...`, `-I...`, and `-Wl,-rpath,...` switches. If you have no idea what we
+are talking about, you should ask your system administrator.
 
 ``` bash
-mpic++ -O3 -std=c++11 -o argo_example   \
-	-L${ARGO_INSTALL_DIRECTORY}/lib     \
-	-I${ARGO_INSTALL_DIRECTORY}/include \
-	argo_example.cpp -largo -largobackend-mpi
+mpic++ -O3 -std=c++11 -o argo_example            \
+       -L${ARGO_INSTALL_DIRECTORY}/lib           \
+       -I${ARGO_INSTALL_DIRECTORY}/include       \
+       -Wl,-rpath,${ARGO_INSTALL_DIRECTORY}/lib  \
+       argo_example.cpp -largo -largobackend-mpi
 ```
 
 This should produce an executable file that can be run with MPI. For

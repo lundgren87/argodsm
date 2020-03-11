@@ -14,9 +14,16 @@
 
 /**
  * @brief initialize ArgoDSM system
- * @param size the desired size of the global memory in bytes
+ * @param argo_size The desired size of the global memory in bytes, or 0. If the
+ *                  value is specified as 0, then the value in environment
+ *                  variable @ref ARGO_MEMORY_SIZE is used instead.
+ *                  If @ref ARGO_MEMORY_SIZE is unset, then a default is used.
+ * @param cache_size The desired size of the local cache in bytes, or 0. If the
+ *                   value is specified as 0, then the value in environment
+ *                   variable @ref ARGO_CACHE_SIZE is used instead.
+ *                   If @ref ARGO_CACHE_SIZE is unset, then a default is used.
  */
-void argo_init(size_t size);
+void argo_init(size_t argo_size, size_t cache_size);
 
 /**
  * @brief shut down ArgoDSM system
