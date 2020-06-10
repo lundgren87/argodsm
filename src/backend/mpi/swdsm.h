@@ -57,9 +57,6 @@
 /** @brief Hack to avoid warnings when you have unused variables in a function */
 #define UNUSED_PARAM(x) (void)(x)
 
-/** @brief The maximum number of ArgoDSM pages to fetch on each remote request */
-#define LOAD_PAGES 4
-
 /** @brief Wrapper for unsigned char - basically a byte */
 typedef unsigned char argo_byte;
 

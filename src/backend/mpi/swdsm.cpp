@@ -31,6 +31,8 @@ pthread_barrier_t *threadbarrier;
 /*Pagecache*/
 /** @brief  Size of the cache in number of pages*/
 unsigned long cachesize;
+/** @brief  The maximum number of pages load_cache_entry will fetch remotely */
+std::size_t load_size;
 /** @brief  Offset off the cache in the backing file*/
 unsigned long cacheoffset;
 /** @brief  Keeps state, tag and dirty bit of the cache*/
@@ -481,7 +483,7 @@ void load_cache_entry(std::size_t aligned_access_offset) {
 
 	/* Adjust end_index to ensure the whole chunk to fetch is on the same node */
 	for(	std::size_t i = start_index+CACHELINE, p = CACHELINE;
-			i < start_index+LOAD_PAGES;
+			i < start_index+load_size;
 			i+=CACHELINE, p+=CACHELINE){
 		const std::size_t temp_addr = aligned_access_offset + p*block_size;
 		/* Increase end_index if it is within bounds and on the same node */
@@ -788,6 +790,8 @@ void argo_initialize(std::size_t argo_size, std::size_t cache_size){
 		pthread_barrier_init(&threadbarrier[i],NULL,i);
 	}
 
+	/** Get the number of pages to load from the env module */
+	load_size = env::load_size();
 	/** Limit cache_size to at most argo_size */
 	cachesize = std::min(argo_size, cache_size);
 	/** Round the number of cache pages upwards */
