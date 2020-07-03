@@ -178,28 +178,25 @@ void flushWriteBuffer(void){
 	stats.flushtime += t2-t1;
 }
 
-void addToWriteBuffer(unsigned long cacheIndex){
+void add_to_write_buffer(unsigned long cache_index){
 	pthread_mutex_lock(&wbmutex);
-	unsigned long line = cacheIndex/CACHELINE;
-	line *= CACHELINE;
+	const unsigned long cache_line = (cache_index/CACHELINE)*CACHELINE;
 
-	if(writebuffer[writebufferend] == line ||
-		 writebuffer[writebufferstart] == line){
+	if(writebuffer[writebufferend] == cache_line ||
+			writebuffer[writebufferstart] == cache_line){
 		pthread_mutex_unlock(&wbmutex);
 		return;
 	}
-  unsigned long wbendplusone = ((writebufferend+1)%writebuffersize);
-	unsigned long wbendplustwo = ((writebufferend+2)%writebuffersize);
-	if(wbendplusone == writebufferstart ){ // Buffer is full wait for slot to be empty
+	const unsigned long wb_end_plus_one = (writebufferend+1)%writebuffersize;
+	if( wb_end_plus_one == writebufferstart ){ // Buffer is full wait for slot to be empty
 		double t1 = MPI_Wtime();
-		write_back_writebuffer();
+		write_back_writebuffer(); // Write back the first part of the write buffer
 		double t4 = MPI_Wtime();
 		stats.writebacks+=CACHELINE;
 		stats.writebacktime+=(t4-t1);
-		writebufferstart = wbendplustwo;
 	}
-	writebuffer[writebufferend] = line;
-	writebufferend = wbendplusone;
+	writebuffer[writebufferend] = cache_line;
+	writebufferend = (writebufferend+1)%writebuffersize;
 	pthread_mutex_unlock(&wbmutex);
 }
 
@@ -475,7 +472,7 @@ void handler(int sig, siginfo_t *si, void *unused){
 	sem_post(&ibsem);
 	unsigned char * copy = (unsigned char *)(pagecopy + line*pagesize);
 	memcpy(copy,aligned_access_ptr,CACHELINE*pagesize);
-	addToWriteBuffer(startIndex);
+	add_to_write_buffer(startIndex);
 	mprotect(aligned_access_ptr, pagesize*CACHELINE,PROT_WRITE|PROT_READ);
 	pthread_mutex_unlock(&cachemutex);
 	double t2 = MPI_Wtime();
@@ -504,30 +501,30 @@ unsigned long getOffset(unsigned long addr){
 }
 
 void write_back_writebuffer() {
-	unsigned long i;
-	unsigned long oldstart;
-	unsigned long idx,tag;
 	sem_wait(&ibsem);
+	int wb_size = 32;
+	int loop_end = writebufferstart+wb_size;
 
-	oldstart = writebufferstart;
-	i = oldstart;
-	idx = writebuffer[i];
-	tag = cacheControl[idx].tag;
-	writebuffer[i] = GLOBAL_NULL;
-	if(tag != GLOBAL_NULL && idx != GLOBAL_NULL && cacheControl[idx].dirty == DIRTY){
-		mprotect((char*)startAddr+tag,CACHELINE*pagesize,PROT_READ);
-		for(i = 0; i <CACHELINE; i++){
-			storepageDIFF(idx+i,tag+pagesize*i);
-			cacheControl[idx+i].dirty = CLEAN;
+	// Empty wb_size successive elements starting from writebufferstart
+	for(int i=writebufferstart; i<loop_end; i++){
+		unsigned long idx = writebuffer[i];
+		unsigned long tag = cacheControl[idx].tag;
+		writebuffer[i] = GLOBAL_NULL;
+		if(tag != GLOBAL_NULL && idx != GLOBAL_NULL && cacheControl[idx].dirty == DIRTY){
+			mprotect((char*)startAddr+tag,CACHELINE*pagesize,PROT_READ);
+			for(int j = 0; j<CACHELINE; j++){
+				storepageDIFF(idx+j,tag+pagesize*j);
+				cacheControl[idx+j].dirty = CLEAN;
+			}
 		}
 	}
-	for(i = 0; i < (unsigned long)numtasks; i++){
+	for(int i=0; i<numtasks; i++){
 		if(barwindowsused[i] == 1){
 			MPI_Win_unlock(i, globalDataWindow[i]);
 			barwindowsused[i] = 0;
 		}
 	}
-	writebufferstart = (writebufferstart+1)%writebuffersize;
+	writebufferstart = (writebufferstart+wb_size)%writebuffersize;
 	sem_post(&ibsem);
 }
 
