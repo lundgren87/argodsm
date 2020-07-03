@@ -178,28 +178,30 @@ void flushWriteBuffer(void){
 	stats.flushtime += t2-t1;
 }
 
-void addToWriteBuffer(unsigned long cacheIndex){
+void add_to_write_buffer(unsigned long cache_index){
 	pthread_mutex_lock(&wbmutex);
-	unsigned long line = cacheIndex/CACHELINE;
-	line *= CACHELINE;
+	unsigned long cache_line = (cache_index/CACHELINE)*CACHELINE;
 
-	if(writebuffer[writebufferend] == line ||
-		 writebuffer[writebufferstart] == line){
+	if(writebuffer[writebufferend] == cache_line ||
+			writebuffer[writebufferstart] == cache_line){
 		pthread_mutex_unlock(&wbmutex);
 		return;
 	}
-  unsigned long wbendplusone = ((writebufferend+1)%writebuffersize);
-	unsigned long wbendplustwo = ((writebufferend+2)%writebuffersize);
-	if(wbendplusone == writebufferstart ){ // Buffer is full wait for slot to be empty
+	const unsigned long wb_end_plus_one = (writebufferend+1)%writebuffersize;
+	if(wb_end_plus_one == writebufferstart ){ // Buffer is full wait for slot to be empty
+		printf("[%d] Writebuffer full [%lu:%lu] - emptying.\n",
+				getID(), writebufferstart, writebufferend);
 		double t1 = MPI_Wtime();
-		write_back_writebuffer();
+		pthread_mutex_unlock(&wbmutex);
+		flushWriteBuffer();	// Flush the whole write buffer
+		pthread_mutex_lock(&wbmutex);
 		double t4 = MPI_Wtime();
+		printf("[%d] Writebuffer empty.\n", getID());
 		stats.writebacks+=CACHELINE;
 		stats.writebacktime+=(t4-t1);
-		writebufferstart = wbendplustwo;
 	}
-	writebuffer[writebufferend] = line;
-	writebufferend = wbendplusone;
+	writebuffer[writebufferend] = cache_line;
+	writebufferend = (writebufferend+1)%writebuffersize;
 	pthread_mutex_unlock(&wbmutex);
 }
 
@@ -475,7 +477,7 @@ void handler(int sig, siginfo_t *si, void *unused){
 	sem_post(&ibsem);
 	unsigned char * copy = (unsigned char *)(pagecopy + line*pagesize);
 	memcpy(copy,aligned_access_ptr,CACHELINE*pagesize);
-	addToWriteBuffer(startIndex);
+	add_to_write_buffer(startIndex);
 	mprotect(aligned_access_ptr, pagesize*CACHELINE,PROT_WRITE|PROT_READ);
 	pthread_mutex_unlock(&cachemutex);
 	double t2 = MPI_Wtime();
