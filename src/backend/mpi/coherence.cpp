@@ -6,6 +6,7 @@
 
 #include "coherence.hpp"
 #include "swdsm.h"
+#include "write_buffer.hpp"
 
 /* EXTERNAL VARIABLES FROM BACKEND */
 /**@todo might declare the variables here later when we remove the old backend */
@@ -21,6 +22,7 @@ extern MPI_Win sharerWindow;
 extern argo_statistics stats;
 extern argo_byte *touchedcache;
 extern MPI_Comm workcomm;
+extern WriteBuffer<unsigned long>* write_buffer;
 
 static const unsigned int pagesize = 4096;
 
@@ -68,6 +70,7 @@ void selective_si(void *addr, size_t size){
 		/* If the page is dirty, downgrade it */
 		argo_byte dirty = cacheControl[idx].dirty;
 		if(dirty == DIRTY){
+			write_buffer->erase(cacheControl[idx].tag);
 			mprotect((char*)startAddr + glob_addr, pagesize*CACHELINE, PROT_READ);
 			cacheControl[idx].dirty = CLEAN;
 			for(i = 0; i <CACHELINE; i++){
@@ -161,6 +164,7 @@ void selective_sd(void *addr, size_t size){
 		// Write back this page if it is DIRTY
 		argo_byte dirty = cacheControl[idx].dirty;
 		if(dirty == DIRTY){
+			write_buffer->erase(cacheControl[idx].tag);
 			mprotect((char*)startAddr + glob_addr, pagesize*CACHELINE, PROT_READ);
 			cacheControl[idx].dirty = CLEAN;
 			for(i = 0; i <CACHELINE; i++){
@@ -236,6 +240,7 @@ void selective_sd_region(void *addr, size_t size){
 		// Write back this page if it is DIRTY and set it to CLEAN
 		argo_byte dirty = cacheControl[idx].dirty;
 		if(dirty == DIRTY){
+			write_buffer->erase(cacheControl[idx].tag);
 			mprotect((char*)startAddr + glob_addr, pagesize*CACHELINE, PROT_READ);
 			cacheControl[idx].dirty = CLEAN;
 
