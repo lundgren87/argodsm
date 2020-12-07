@@ -180,6 +180,9 @@ namespace argo {
 			return _is_cached(reinterpret_cast<std::size_t>(addr));
 		}
 
+		std::size_t block_size() {
+			return data_distribution::is_cyclic_policy() ? env::allocation_block_size()*page_size : CACHELINE*page_size;
+		}
 
 		void finalize() {
 			argo_finalize();

@@ -69,6 +69,9 @@ namespace argo {
 		return static_cast<int>(argo::backend::number_of_nodes());
 	}
 
+	std::size_t get_block_size() {
+		return argo::backend::block_size();
+	}
 } // namespace argo
 
 extern "C" {
@@ -100,5 +103,17 @@ extern "C" {
 
 	int argo_number_of_nodes() {
 		return argo::number_of_nodes();
+	}
+
+	bool argo_is_argo_address(void* addr) {
+		return argo::is_argo_address(addr);
+	}
+
+	int argo_get_homenode(void* addr) {
+		return argo::get_homenode(addr);
+	}
+
+	size_t argo_get_block_size() {
+		return static_cast<size_t>(argo::get_block_size());
 	}
 }

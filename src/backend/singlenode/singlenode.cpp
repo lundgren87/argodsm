@@ -128,6 +128,16 @@ namespace argo {
 		void finalize() {
 		}
 
+		/**
+		 * @todo This funciton is currently useless for the singlenode
+		 * backend but needs to behave like the corresponding implementation
+		 * in the MPI backend simply for the sake of testing correctness. It
+		 * should probably be removed eventually.
+		 */
+		std::size_t block_size() {
+			return data_distribution::is_cyclic_policy() ? env::allocation_block_size()*4096: global_size();
+		}
+
 		void barrier(std::size_t threadcount) {
 			/* initially: flag = false */
 			std::unique_lock<std::mutex> barrier_lock(barrier_mutex);
