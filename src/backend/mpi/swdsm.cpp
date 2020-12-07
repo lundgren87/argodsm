@@ -472,9 +472,10 @@ void handler(int sig, siginfo_t *si, void *unused){
 
 
 unsigned long getHomenode(unsigned long addr){
-	unsigned long homenode = addr/size_of_chunk;
+	unsigned long aligned_addr = align_backwards(addr, pagesize*CACHELINE);
+	unsigned long homenode = aligned_addr/size_of_chunk;
 	if(homenode >=(unsigned long)numtasks){
-                printf("Homenode: %lu\n - Exiting.", homenode);
+                printf("Addr: %p\tHomenode: %lu\n - Exiting.", (void*)aligned_addr, homenode);
 		exit(EXIT_FAILURE);
 	}
 	return homenode;

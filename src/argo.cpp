@@ -57,6 +57,21 @@ namespace argo {
 		return static_cast<int>(argo::backend::number_of_nodes());
 	}
 
+	bool is_argo_address(void *addr) {
+		char* check_addr = static_cast<char*>(addr);
+		char* argo_start = static_cast<char*>(argo::virtual_memory::start_address());
+		char* argo_end = static_cast<char*>(argo_start + argo::virtual_memory::size());
+		return static_cast<bool>(check_addr >= argo_start && check_addr < argo_end);
+	}
+
+	int get_homenode(void *addr) {
+		return static_cast<int>(argo::backend::get_homenode(addr));
+	}
+
+	int get_chunk_size() {
+		return static_cast<int>(argo::backend::get_chunk_size());
+	}
+
 } // namespace argo
 
 extern "C" {
@@ -88,5 +103,17 @@ extern "C" {
 
 	int argo_number_of_nodes() {
 		return argo::number_of_nodes();
+	}
+
+	bool is_argo_address(void *addr) {
+		return argo::is_argo_address(addr);
+	}
+
+	int get_homenode(void *addr) {
+		return argo::get_homenode(addr);
+	}
+
+	int get_chunk_size() {
+		return argo::get_chunk_size();
 	}
 }

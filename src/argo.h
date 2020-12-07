@@ -47,5 +47,20 @@ int  argo_node_id();
  * @return The total number of ArgoDSM nodes
  */
 int  argo_number_of_nodes();
+/**
+ * @brief Check whether addr belongs in the ArgoDSM memory space
+ * @return True if addr is ArgoDSM address, else False
+ */
+bool is_argo_address(void *addr);
+/**
+ * @brief Get the ArgoDSM node id where addr is physically allocated
+ * @return The ArgoDSM node ID of the provided addr
+ */
+int get_homenode(void *addr);
+/**
+ * @brief Get the chunk size of ArgoDSM allocations
+ * @return The chunk size of ArgoDSM allocations
+ */
+int get_chunk_size();
 
 #endif /* argo_argo_h */

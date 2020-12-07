@@ -80,6 +80,18 @@ namespace argo {
 		 */
 		std::size_t global_size();
 
+		/**
+		 * @brief get the homenode of an ArgoDSM page
+		 * @param addr a page aligned ArgoDSM address
+		 * @return the homenode of the page pointed to by addr
+		 */
+		int get_homenode(void* addr);
+
+		/**
+		 * @brief get the chunk size of each ArgoDSM allocation chunk
+		 * @return the chunk size used in ArgoDSM allocations
+		 */
+		int get_chunk_size();
 
 		/**
 		 * @brief global memory space address

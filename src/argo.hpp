@@ -68,7 +68,24 @@ namespace argo {
 	 * @return The total number of ArgoDSM nodes
 	 */
 	int number_of_nodes();
-
+	/**
+	 * @brief Check whether addr belongs in the ArgoDSM memory space
+	 * @param An address in the ArgoDSM memory space
+	 * @return True if addr is ArgoDSM address, else False
+	 */
+	bool is_argo_address(void *addr);
+	/**
+	 * @brief Get the ArgoDSM node id where addr is physically allocated
+	 * @param An address in the ArgoDSM memory space
+	 * @return The ArgoDSM node ID of the provided addr
+	 */
+	int get_homenode(void *addr);
+	/**
+	 * @brief Get the chunk size of the current allocation model
+	 * @return The size of each allocation chunk in ArgoDSM
+	 * @todo Update this for future allocation principles
+	 */
+	int get_chunk_size();
 } // namespace argo
 
 #endif /* argo_argo_hpp */

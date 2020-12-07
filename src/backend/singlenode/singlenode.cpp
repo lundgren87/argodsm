@@ -103,6 +103,16 @@ namespace argo {
 		void finalize() {
 		}
 
+		unsigned long getHomenode(unsigned long addr){
+			// There is only one node so return 0
+			return 0;
+		}
+
+		int get_chunk_size() {
+			// There is only one chunk, return the full size of the memory
+			return static_cast<int>(argo_size);
+		}
+
 		void barrier(std::size_t threadcount) {
 			/* initially: flag = false */
 			std::unique_lock<std::mutex> barrier_lock(barrier_mutex);

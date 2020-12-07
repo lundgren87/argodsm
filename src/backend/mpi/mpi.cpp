@@ -28,6 +28,16 @@ extern MPI_Comm workcomm;
 extern MPI_Win  *globalDataWindow;
 
 /**
+ * @brief	start address of the virtual memory space
+ */
+extern unsigned long startAddr;
+
+/**
+ * @brief	the size of ArgoDSM allocation blocks
+ */
+extern unsigned long size_of_chunk;
+
+/**
  * @todo should be changed to qd-locking (but need to be replaced in the other files as well)
  *       or removed when infiniband/the mpi implementations allows for multithreaded accesses to the interconnect
  * @deprecated prototype implementation detail
@@ -148,6 +158,17 @@ namespace argo {
 
 		std::size_t global_size() {
 			return argo_get_global_size();
+		}
+
+		int get_homenode(void* addr) {
+			unsigned long start_addr = startAddr;
+			return static_cast<int>(getHomenode(reinterpret_cast<unsigned long>(addr)-start_addr));
+		}
+
+		int get_chunk_size() {
+			/** TODO FIX THIS FOR ALLOCATION SCHEMES */
+			//return static_cast<int>(size_of_chunk);
+			return static_cast<int>(4096);
 		}
 
 		void finalize() {
