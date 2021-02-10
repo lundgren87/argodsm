@@ -10,6 +10,13 @@ addons:
       - libopenmpi-dev
 language: cpp
 
+env:
+  - TEST_SUITE="travis/build_debug_documentation.sh"
+  - TEST_SUITE="travis/build_n1.sh"
+  - TEST_SUITE="travis/build_n2.sh"
+  - TEST_SUITE="travis/build_n3.sh"
+  - TEST_SUITE="travis/build_n4.sh"
+
 before_install:
   - cd tests
   - wget https://github.com/google/googletest/archive/release-1.10.0.zip
@@ -17,10 +24,5 @@ before_install:
   - mv googletest-release-1.10.0 gtest-1.7.0    # FIXME PLEASE AS IN #40
   - cd ..
 
-before_script:
-  - mkdir build && cd build
-  - cmake -DARGO_BACKEND_MPI=ON -DARGO_BACKEND_SINGLENODE=ON -DARGO_TESTS=ON -DBUILD_DOCUMENTATION=ON -DCMAKE_CXX_COMPILER=mpic++ -DCMAKE_C_COMPILER=mpicc ../
-  - make
-
 script:
-  - make test
+  - sh ${TEST_SUITE}
