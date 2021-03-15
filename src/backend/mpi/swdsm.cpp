@@ -240,7 +240,6 @@ void handler(int sig, siginfo_t *si, void *unused){
 	UNUSED_PARAM(sig);
 	UNUSED_PARAM(unused);
 	double t1 = MPI_Wtime();
-
 	unsigned long tag;
 	argo_byte owner,state;
 	/* compute offset in distributed memory in bytes, always positive */
@@ -253,8 +252,21 @@ void handler(int sig, siginfo_t *si, void *unused){
 	/* compute start pointer of cacheline. char* has byte-wise arithmetics */
 	char* const aligned_access_ptr = static_cast<char*>(startAddr) + aligned_access_offset;
 	unsigned long startIndex = getCacheIndex(aligned_access_offset);
-	unsigned long homenode = getHomenode(aligned_access_offset, env::allocation_policy());
-	unsigned long offset = getOffset(aligned_access_offset, env::allocation_policy());
+
+	/* Get homenode and offset, protect with ibsem if first touch */
+	argo::node_id_t homenode;
+	std::size_t offset;
+	if(dd::is_first_touch_policy()){
+		std::lock_guard<std::mutex> lock(spin_mutex);
+		sem_wait(&ibsem);
+		homenode = get_homenode(aligned_access_offset);
+		offset = get_offset(aligned_access_offset);
+		sem_post(&ibsem);
+	}else{
+		homenode = get_homenode(aligned_access_offset);
+		offset = get_offset(aligned_access_offset);
+	}
+
 	unsigned long id = 1 << getID();
 	unsigned long invid = ~id;
 
@@ -421,43 +433,34 @@ void handler(int sig, siginfo_t *si, void *unused){
 }
 
 
-unsigned long getHomenode(unsigned long addr, char cloc){
-	std::size_t homenode;
-	if (cloc == dd::memory_policy::first_touch) {
-		std::lock_guard<std::mutex> lock(spin_mutex);
-		sem_wait(&ibsem);
-		dd::global_ptr<char> gptr(reinterpret_cast<char*>(
-				addr + reinterpret_cast<unsigned long>(startAddr)), __func__);
-		homenode = gptr.node();
-		sem_post(&ibsem);
-	} else {
-		dd::global_ptr<char> gptr(reinterpret_cast<char*>(
-				addr + reinterpret_cast<unsigned long>(startAddr)), __func__);
-		homenode = gptr.node();
-	}
-	return homenode;
+argo::node_id_t get_homenode(std::size_t addr){
+	dd::global_ptr<char> gptr(reinterpret_cast<char*>(
+			addr + reinterpret_cast<unsigned long>(startAddr)), true, false);
+	return gptr.node();
 }
 
-unsigned long getOffset(unsigned long addr, char cloc){
-	std::size_t offset;
-	if (cloc == dd::memory_policy::first_touch) {
-		std::lock_guard<std::mutex> lock(spin_mutex);
-		sem_wait(&ibsem);
-		dd::global_ptr<char> gptr(reinterpret_cast<char*>(
-				addr + reinterpret_cast<unsigned long>(startAddr)), __func__);
-		offset = gptr.offset();
-		sem_post(&ibsem);
-	} else {
-		dd::global_ptr<char> gptr(reinterpret_cast<char*>(
-				addr + reinterpret_cast<unsigned long>(startAddr)), __func__);
-		offset = gptr.offset();
-	}
-	return offset;
+argo::node_id_t peek_homenode(std::size_t addr) {
+	dd::global_ptr<char> gptr(reinterpret_cast<char*>(
+			addr + reinterpret_cast<unsigned long>(startAddr)), false, false);
+	return gptr.peek_node();
+}
+
+std::size_t get_offset(std::size_t addr){
+	dd::global_ptr<char> gptr(reinterpret_cast<char*>(
+			addr + reinterpret_cast<unsigned long>(startAddr)), false, true);
+	return gptr.offset();
+}
+
+std::size_t peek_offset(std::size_t addr) {
+	dd::global_ptr<char> gptr(reinterpret_cast<char*>(
+			addr + reinterpret_cast<unsigned long>(startAddr)), false, false);
+	return gptr.peek_offset();
 }
 
 void load_cache_entry(std::size_t aligned_access_offset) {
 
-	if(aligned_access_offset >= size_of_all){ // Not an ArgoDSM address, do not handle this
+	/* If it's not an ArgoDSM address, do not handle it */
+	if(aligned_access_offset >= size_of_all){
 		return;
 	}
 
@@ -470,7 +473,8 @@ void load_cache_entry(std::size_t aligned_access_offset) {
 	const std::size_t cache_index = getCacheIndex(aligned_access_offset);
 	const std::size_t start_index = align_backwards(cache_index, CACHELINE);
 	std::size_t end_index = start_index+CACHELINE;
-	const std::size_t load_node = getHomenode(aligned_access_offset);
+	const argo::node_id_t load_node = get_homenode(aligned_access_offset);
+	const std::size_t load_offset = get_offset(aligned_access_offset);
 
 	sem_wait(&ibsem);
 
@@ -482,14 +486,15 @@ void load_cache_entry(std::size_t aligned_access_offset) {
 	}
 
 	/* Adjust end_index to ensure the whole chunk to fetch is on the same node */
-	for(	std::size_t i = start_index+CACHELINE, p = CACHELINE;
-			i < start_index+load_size;
-			i+=CACHELINE, p+=CACHELINE){
+	for(std::size_t i = start_index+CACHELINE, p = CACHELINE;
+					i < start_index+load_size;
+					i+=CACHELINE, p+=CACHELINE){
 		const std::size_t temp_addr = aligned_access_offset + p*block_size;
 		/* Increase end_index if it is within bounds and on the same node */
 		if(temp_addr < size_of_all && i < cachesize){
-			const std::size_t temp_node = getHomenode(temp_addr);
-			if(temp_node == load_node){
+			const argo::node_id_t temp_node = peek_homenode(temp_addr);
+			const std::size_t temp_offset = peek_offset(temp_addr);
+			if(temp_node == load_node && temp_offset == (load_offset + p*block_size)){
 				end_index+=CACHELINE;
 			}else{
 				break;
@@ -651,10 +656,9 @@ void load_cache_entry(std::size_t aligned_access_offset) {
 	}
 
 	/* Finally, get the cache data and store it temporarily */
-	const std::size_t offset = getOffset(aligned_access_offset);
 	MPI_Win_lock(MPI_LOCK_SHARED, load_node , 0, globalDataWindow[load_node]);
 	MPI_Get(temp_data.data(), fetch_size, cacheblock,
-					load_node, offset, fetch_size, cacheblock, globalDataWindow[load_node]);
+					load_node, load_offset, fetch_size, cacheblock, globalDataWindow[load_node]);
 	MPI_Win_unlock(load_node, globalDataWindow[load_node]);
 
 	/* Update the cache */
@@ -709,10 +713,10 @@ void initmpi(){
 	init_mpi_cacheblock();
 }
 
-unsigned int getID(){
+argo::node_id_t getID(){
 	return workrank;
 }
-unsigned int argo_get_nid(){
+argo::node_id_t argo_get_nid(){
 	return workrank;
 }
 
@@ -1137,8 +1141,8 @@ void clearStatistics(){
 void storepageDIFF(unsigned long index, unsigned long addr){
 	unsigned int i,j;
 	int cnt = 0;
-	unsigned long homenode = getHomenode(addr);
-	unsigned long offset = getOffset(addr);
+	const argo::node_id_t homenode = get_homenode(addr);
+	const std::size_t offset = get_offset(addr);
 
 	char * copy = (char *)(pagecopy + index*pagesize);
 	char * real = (char *)startAddr+addr;

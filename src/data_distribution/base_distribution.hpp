@@ -72,11 +72,36 @@ namespace argo {
 				}
 
 				/**
+				 * @brief compute home node of an address
+				 * @param ptr address to find homenode of
+				 * @note this version shall not perform first-touch on an
+				 * address that has not yet been first touched.
+				 * @return the computed home node
+				 */
+				virtual node_id_t peek_homenode (char* const ptr) {
+					(void)ptr;
+					return -1;
+				}
+
+				/**
 				 * @brief compute offset into the home node's share of the memory
 				 * @param ptr address to find offset of
 				 * @return the computed offset
 				 */
 				virtual std::size_t local_offset (char* const ptr) {
+					(void)ptr;
+					return 0;
+				}
+
+				/**
+				 * @brief compute offset into the home node's share of the memory
+				 * @param ptr address to find offset of
+				 * does not have a valid offset
+				 * @note this version shall not perform first-touch on an
+				 * address that has not yet been first touched.
+				 * @return the computed offset
+				 */
+				virtual std::size_t peek_local_offset (char* const ptr) {
 					(void)ptr;
 					return 0;
 				}

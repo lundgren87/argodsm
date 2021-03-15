@@ -33,6 +33,7 @@
 #include <unistd.h>
 
 #include "argo.h"
+
 /** @brief Granularity of coherence unit / pagesize  */
 #define GRAN 4096L //page size.
 
@@ -225,13 +226,13 @@ void argo_reset_coherence(int n);
  * @deprecated Should use argo_get_nid() instead and eventually remove this
  * @see argo_get_nid()
  */
-unsigned int getID();
+argo::node_id_t getID();
 
 /**
  * @brief Gives the ArgoDSM node id for the local process
  * @return Returns the ArgoDSM node id for the local process
  */
-unsigned int argo_get_nid();
+argo::node_id_t argo_get_nid();
 
 /**
  * @brief Gives number of ArgoDSM nodes
@@ -309,17 +310,31 @@ unsigned long getCacheIndex(unsigned long addr);
 /**
  * @brief Gives homenode for a given address
  * @param addr Address in the global address space
- * @param cloc Used to identify the call location in the code
  * @return Process ID of the node backing the memory containing addr
  */
-unsigned long getHomenode(unsigned long addr, char cloc = 0);
+argo::node_id_t get_homenode(std::size_t addr);
+/**
+ * @brief Gives homenode for a given address
+ * @param addr Address in the global address space
+ * @return Process ID of the node backing the memory containing addr
+ * @note This version does not invoke a first-touch call and instead
+ * returns -1 if an address has not been first-touched
+ */
+argo::node_id_t peek_homenode(std::size_t addr);
 /**
  * @brief Gets the offset of an address on the local nodes part of the global memory
  * @param addr Address in the global address space
- * @param cloc Used to identify the call location in the code
  * @return addr-(start address of local process part of global memory)
  */
-unsigned long getOffset(unsigned long addr, char cloc = 0);
+std::size_t get_offset(std::size_t addr);
+/**
+ * @brief Gets the offset of an address on the local nodes part of the global memory
+ * @param addr Address in the global address space
+ * @return addr-(start address of local process part of global memory)
+ * @note This version does not invoke a first-touch call and instead
+ * returns SIZE_MAX if an address has not been first-touched
+ */
+std::size_t peek_offset(std::size_t addr);
 /**
  * @brief Gives an index to the sharer/writer vector depending on the address
  * @param addr Address in the global address space
