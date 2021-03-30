@@ -1199,3 +1199,29 @@ size_t argo_get_global_size(){return size_of_all;}
 unsigned long get_classification_index(uint64_t addr){
 	return (2*(addr/(pagesize*CACHELINE))) % classificationSize;
 }
+
+bool _is_cached(std::size_t addr) {
+	argo::node_id_t homenode;
+	std::size_t aligned_address = align_backwards(
+			addr-reinterpret_cast<std::size_t>(startAddr), CACHELINE*pagesize);
+	if(dd::is_first_touch_policy()){
+		homenode = peek_homenode(aligned_address);
+	}else{
+		homenode = get_homenode(aligned_address);
+	}
+	std::size_t cache_index = getCacheIndex(aligned_address);
+
+	bool is_local;
+	if(homenode == getID()) {
+		// Page is local, does not need to be cached
+		is_local = true;
+	}else if(cacheControl[cache_index].tag == aligned_address &&
+			cacheControl[cache_index].state == VALID) {
+		// Page is cached
+		is_local = true;
+	}else{
+		// Page is neither local nor cached
+		is_local = false;
+	}
+	return is_local;
+}

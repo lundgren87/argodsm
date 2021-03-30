@@ -120,6 +120,11 @@ namespace argo {
 			return memory_size;
 		}
 
+		bool is_cached(void* addr) {
+			(void)addr;
+			return true;
+		}
+
 		void finalize() {
 		}
 

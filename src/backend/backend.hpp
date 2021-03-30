@@ -80,6 +80,15 @@ namespace argo {
 		 */
 		std::size_t global_size();
 
+		/**
+		 * @brief Check if a an address is cached or node local
+		 * @param addr the address to verify cache status on
+		 * @return True if the page is either cached on the node
+		 * or locally backed on the node, otherwise false.
+		 * @warning THIS IS FOR TESTING, DO NOT USE
+		 * @todo THIS SHOULD BE BAKED IN TO A CACHE CLASS
+		 */
+		bool is_cached(void* addr);
 
 		/**
 		 * @brief global memory space address

@@ -341,5 +341,14 @@ std::size_t peek_offset(std::size_t addr);
  * @return index for sharer vector for the page
  */
 unsigned long get_classification_index(uint64_t addr);
+/**
+ * @brief Check whether a page is either cached on the node or
+ * locally backed.
+ * @param addr Address in the global address space
+ * @return true if cached or locally backed, else false
+ * @warning This is strictly meant for testing prefetching
+ * @todo This should be moved in to a dedicated cache class
+ */
+bool _is_cached(std::size_t addr);
 #endif /* argo_swdsm_h */
 

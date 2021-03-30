@@ -176,6 +176,11 @@ namespace argo {
 			return argo_get_global_size();
 		}
 
+		bool is_cached(void* addr) {
+			return _is_cached(reinterpret_cast<std::size_t>(addr));
+		}
+
+
 		void finalize() {
 			argo_finalize();
 		}
