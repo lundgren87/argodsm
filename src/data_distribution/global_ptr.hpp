@@ -35,7 +35,7 @@ namespace argo {
 
 			public:
 				/** @brief construct nullptr */
-				global_ptr() : homenode(-1), local_offset(SIZE_MAX) {}
+				global_ptr() : homenode(invalid_node_id), local_offset(invalid_offset) {}
 
 				/**
 				 * @brief construct from virtual address pointer
@@ -45,7 +45,7 @@ namespace argo {
 				 */
 				global_ptr(T* ptr, const bool compute_homenode = true,
 									const bool compute_offset = true)
-						: homenode(-1), local_offset(SIZE_MAX), access_ptr(ptr) {
+						: homenode(invalid_node_id), local_offset(invalid_offset), access_ptr(ptr) {
 					if(compute_homenode){
 						homenode = policy()->homenode(reinterpret_cast<char*>(ptr));
 					}
@@ -90,7 +90,7 @@ namespace argo {
 				 */
 				node_id_t node() {
 					// If homenode is not yet calculated we need to find it
-					if(homenode == -1) {
+					if(homenode == invalid_node_id) {
 						homenode = policy()->homenode(
 								reinterpret_cast<char*>(access_ptr));
 					}
@@ -105,7 +105,7 @@ namespace argo {
 				 */
 				node_id_t peek_node() {
 					// If homenode is not yet calculated we need to find it
-					if(homenode == -1) {
+					if(homenode == invalid_node_id) {
 						// Do not invoke first-touch
 						if(is_first_touch_policy()) {
 							homenode = policy()->peek_homenode(
@@ -123,7 +123,7 @@ namespace argo {
 				 * @return local offset
 				 */
 				std::size_t offset() {
-					if(local_offset == SIZE_MAX) {
+					if(local_offset == invalid_offset) {
 						local_offset = policy()->local_offset(
 								reinterpret_cast<char*>(access_ptr));
 					}
@@ -138,7 +138,7 @@ namespace argo {
 				 */
 				node_id_t peek_offset() {
 					// If homenode is not yet calculated we need to find it
-					if(local_offset == SIZE_MAX) {
+					if(local_offset == invalid_offset) {
 						// Do not invoke first-touch
 						if(is_first_touch_policy()) {
 							local_offset = policy()->peek_local_offset(

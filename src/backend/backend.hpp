@@ -222,8 +222,8 @@ namespace argo {
 			/**
 			 * @brief Backend internal type erased atomic store function
 			 * @param desired Pointer to the object that holds the desired value
-			 * @param count Number of element from desired to store
-			 * @param size size of each element in desired
+			 * @param count Number of elements from desired to store
+			 * @param size Size of each element in desired
 			 * @param rank Rank of target window to which operation will be performed
 			 * @param disp Displacement from start of window to beginning of target buffer
 			 * @sa store to public window section
@@ -238,7 +238,7 @@ namespace argo {
 			/**
 			 * @brief Backend internal type erased atomic store function
 			 * @param desired The desired value to be stored
-			 * @param count Number of element from desired to store
+			 * @param count Number of elements from desired to store
 			 * @param rank Rank of target window to which operation will be performed
 			 * @param disp Displacement from start of window to beginning of target buffer
 			 * @sa store to private window section
@@ -277,7 +277,7 @@ namespace argo {
 			 * @brief Backend internal type erased atomic load function
 			 * @param output_buffer Pointer to the memory location where the value of the object should be stored
 			 * @param size Size of an element to load
-			 * @param count Number of element to load
+			 * @param count Number of elements to load
 			 * @param rank Rank of target window to which operation will be performed
 			 * @param disp Displacement from start of window to beginning of target buffer
 			 * @sa load from public window section
@@ -292,7 +292,7 @@ namespace argo {
 			/**
 			 * @brief Backend internal type erased atomic load function
 			 * @param output_buffer Pointer to the memory location where the value of the object should be stored
-			 * @param count Number of element to load
+			 * @param count Number of elements to load
 			 * @param rank Rank of target window to which operation will be performed
 			 * @param disp Displacement from start of window to beginning of target buffer
 			 * @sa load from private window section

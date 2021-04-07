@@ -464,12 +464,15 @@ void load_cache_entry(std::size_t aligned_access_offset) {
 		return;
 	}
 
+	const std::size_t block_size = pagesize*CACHELINE;
+	/* Check that the precondition holds true */
+	assert((aligned_access_offset % block_size) == 0);
+
 	/* Assign node bit IDs */
 	const std::uintptr_t node_id_bit = 1 << getID();
 	const std::uintptr_t node_id_inv_bit = ~node_id_bit;
 
 	/* Calculate start values and store some parameters */
-	const std::size_t block_size = pagesize*CACHELINE;
 	const std::size_t cache_index = getCacheIndex(aligned_access_offset);
 	const std::size_t start_index = align_backwards(cache_index, CACHELINE);
 	std::size_t end_index = start_index+CACHELINE;
@@ -505,7 +508,6 @@ void load_cache_entry(std::size_t aligned_access_offset) {
 		}
 	}
 
-	/* Allocate space for loading things */
 	bool new_sharer = false;
 	const std::size_t fetch_size = end_index - start_index;
 	const std::size_t classification_size = fetch_size*2;
@@ -532,7 +534,7 @@ void load_cache_entry(std::size_t aligned_access_offset) {
 		const std::size_t temp_addr = aligned_access_offset + p*block_size;
 
 		/* Skip updating pages that are already present and valid in the cache */
-		if(cacheControl[idx].tag  == temp_addr && cacheControl[idx].state != INVALID){
+		if(cacheControl[idx].tag == temp_addr && cacheControl[idx].state != INVALID){
 			pages_to_load[p] = false;
 			continue;
 		}else{
@@ -558,7 +560,7 @@ void load_cache_entry(std::size_t aligned_access_offset) {
 					MPI_Win_unlock(i, globalDataWindow[i]);
 					barwindowsused[i] = 0;
 				}
-			} // TODO: move this out to avoid unlocking for every page?
+			}
 
 			/* Clean up cache and protect memory */
 			cacheControl[idx].state = INVALID;
@@ -594,7 +596,10 @@ void load_cache_entry(std::size_t aligned_access_offset) {
 
 	/* If this node is a new sharer of at least one of the pages */
 	if(new_sharer){
-		/* Register ourselves on all newly shared pages the loadnode directory */
+		/* Register this node as sharer of all newly shared pages in the load_node's
+		 * globalSharers directory using one MPI call. When this call returns,
+		 * remote_sharers contains remote globalSharers directory values prior to
+		 * this call. */
 		MPI_Win_lock(MPI_LOCK_SHARED, load_node, 0, sharerWindow);
 		MPI_Get_accumulate(sharer_bit_mask.data(), classification_size, MPI_LONG,
 				remote_sharers.data(), classification_size, MPI_LONG,
@@ -645,7 +650,7 @@ void load_cache_entry(std::size_t aligned_access_offset) {
 					}
 				}
 
-				/* Downgrade all relevant pages on the owner node (P>S) */
+				/* Downgrade all relevant pages on the owner node from private to shared */
 				MPI_Win_lock(MPI_LOCK_EXCLUSIVE, owner, 0, sharerWindow);
 				MPI_Accumulate(sharer_bit_mask.data(), classification_size, MPI_LONG, owner,
 						classification_index_array[0], classification_size, MPI_LONG,
@@ -684,7 +689,6 @@ void load_cache_entry(std::size_t aligned_access_offset) {
 			cacheControl[idx].dirty=CLEAN;
 		}
 	}
-	/* Ensure to free space occupied by tempData */
 	sem_post(&ibsem);
 }
 
@@ -1211,17 +1215,7 @@ bool _is_cached(std::size_t addr) {
 	}
 	std::size_t cache_index = getCacheIndex(aligned_address);
 
-	bool is_local;
-	if(homenode == getID()) {
-		// Page is local, does not need to be cached
-		is_local = true;
-	}else if(cacheControl[cache_index].tag == aligned_address &&
-			cacheControl[cache_index].state == VALID) {
-		// Page is cached
-		is_local = true;
-	}else{
-		// Page is neither local nor cached
-		is_local = false;
-	}
-	return is_local;
+	// Return true for pages which are either local or already cached
+	return ((homenode == getID()) || (cacheControl[cache_index].tag == aligned_address &&
+				cacheControl[cache_index].state == VALID));
 }

@@ -316,9 +316,10 @@ argo::node_id_t get_homenode(std::size_t addr);
 /**
  * @brief Gives homenode for a given address
  * @param addr Address in the global address space
- * @return Process ID of the node backing the memory containing addr
- * @note This version does not invoke a first-touch call and instead
- * returns -1 if an address has not been first-touched
+ * @return Process ID of the node backing the memory containing addr,
+ * or argo::data_distribution::invalid_node_id if addr has not been first-touched
+ * @note This version does not invoke a first-touch call if an
+ * address has not been first-touched
  */
 argo::node_id_t peek_homenode(std::size_t addr);
 /**
@@ -330,9 +331,10 @@ std::size_t get_offset(std::size_t addr);
 /**
  * @brief Gets the offset of an address on the local nodes part of the global memory
  * @param addr Address in the global address space
- * @return addr-(start address of local process part of global memory)
- * @note This version does not invoke a first-touch call and instead
- * returns SIZE_MAX if an address has not been first-touched
+ * @return addr-(start address of local process part of global memory),
+ * or argo::data_distribution::invalid_offset if addr has not been first-touched yet
+ * @note This version does not invoke a first-touch call if an
+ * address has not been first-touched
  */
 std::size_t peek_offset(std::size_t addr);
 /**
