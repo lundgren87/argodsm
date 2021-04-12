@@ -5,6 +5,7 @@
  */
 
 #include <iostream>
+#include <atomic>
 
 #include <limits.h>
 #include <unistd.h>
@@ -138,6 +139,15 @@ TEST_F(PrefetchTest, AccessPrefetched) {
 				for(std::size_t i = 0; i < page_size; i++) {
 					tmp[page_num*page_size+i] = c_const;
 				}
+				/**
+				 * This fence prevents both compiler and CPU reordering
+				 * of stores (and loads) on a page level to ensure that
+				 * tmp is contiguously mapped in the backing store. This
+				 * is necessary to ensure a deterministic behaviour for
+				 * the first-touch allocation policy.
+				 */
+				std::atomic_thread_fence(std::memory_order_seq_cst);
+
 			}
 		}
 		/* Wait for init to finish */
