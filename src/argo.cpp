@@ -10,10 +10,12 @@
 #include "allocators/dynamic_allocator.hpp"
 #include "env/env.hpp"
 #include "virtual_memory/virtual_memory.hpp"
+#include "data_distribution/data_distribution.hpp"
 
 namespace vm = argo::virtual_memory;
 namespace mem = argo::mempools;
 namespace alloc = argo::allocators;
+namespace dd = argo::data_distribution;
 
 /* some memory pools for default use */
 /** @todo should be static? */
@@ -70,7 +72,7 @@ namespace argo {
 	}
 
 	std::size_t get_block_size() {
-		return argo::backend::block_size();
+		return dd::policy_block_size();
 	}
 } // namespace argo
 

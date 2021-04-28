@@ -91,12 +91,6 @@ namespace argo {
 		bool is_cached(void* addr);
 
 		/**
-		 * @brief get the block size of each ArgoDSM allocation block
-		 * @return the block size used in ArgoDSM allocations in bytes
-		 */
-		std::size_t block_size();
-
-		/**
 		 * @brief global memory space address
 		 * @deprecated prototype implementation detail
 		 */

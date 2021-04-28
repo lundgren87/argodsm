@@ -109,8 +109,13 @@ TEST_F(APITest, GetHomeNode) {
 TEST_F(APITest, GetBlockSize) {
 	std::size_t env_block_size = env::allocation_block_size();
 	std::size_t api_block_size = argo::get_block_size();
+	std::size_t size_per_node = argo::backend::global_size()/argo::number_of_nodes();
 	if(dd::is_cyclic_policy()) {
 		ASSERT_EQ(api_block_size, env_block_size*page_size);
+	}else if(dd::is_first_touch_policy()){
+		ASSERT_EQ(api_block_size, page_size);
+	}else{
+		ASSERT_EQ(api_block_size, size_per_node);
 	}
 }
 
