@@ -96,8 +96,7 @@ namespace argo {
 	template<typename T>
 	int get_homenode(T* addr) {
 		data_distribution::global_ptr<T> gptr(addr, false, false);
-		return data_distribution::is_first_touch_policy() ?
-			gptr.peek_node() : gptr.node();
+		return gptr.peek_node();
 	}
 
 	/**
